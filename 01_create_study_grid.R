@@ -29,14 +29,14 @@ lapply(list.of.packages, require, character.only = TRUE)
 
 ###--- Area of Interest (AOI) is larger than Study Area
 # keep in mind that WGS84 lat/long espg = 4326; BC Albers espg = 3005; NAD83 / UTM zone 10N espg = 26910 
-aoi <- st_read(dsn = "./data", layer = "BDOW_removalsites_20210330") %>% st_transform(crs = 3005)
-aoi_utm <- st_transform(aoi, crs=26910)
+aoi <- st_read(dsn = "./data", layer = "BDOW_removalsites_20210330") # %>% st_transform(crs = 3005)
+aoi_utm <- st_transform(aoi, crs=26910) # to have in metres for specifying grid cell size
 
 # plot as check and to ensure correct AOI for fishnet
 # ggplot()+
 #   geom_sf(data = aoi, aes(fill=as.factor(OBJECTID)))
 
-aoi_1km_grid <- st_make_grid(st_bbox(aoi_utm), cellsize=1000, square=TRUE) # 1km grid for entire AOI (rectangle)
+aoi_1km_grid <- st_make_grid(st_bbox(aoi_utm), cellsize=1000, square=TRUE) # 1km (1000 m) grid for entire AOI (rectangle)
 sa_1km_grid <- st_make_grid(aoi_utm %>% filter(OBJECTID==3), cellsize = 1000, square = TRUE) # 1km grid for study area (sa)
 
 # plot as check
