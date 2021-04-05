@@ -21,7 +21,7 @@ tz = Sys.timezone() # specify timezone in BC
 
 # Load Packages
 list.of.packages <- c("tidyverse", "lubridate","bcdata", "bcmaps","sp","sf", "rgdal", "readxl", "Cairo",
-                      "OpenStreetMap", "ggmap")
+                      "OpenStreetMap", "ggmap", "nngeo")
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
