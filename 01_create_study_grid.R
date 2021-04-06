@@ -37,7 +37,8 @@ aoi_utm <- st_transform(aoi, crs=26910) # to have in metres for specifying grid 
 #   geom_sf(data = aoi, aes(fill=as.factor(OBJECTID)))
 
 aoi_1km_grid <- st_make_grid(st_bbox(aoi_utm), cellsize=1000, square=TRUE) # 1km (1000 m) grid for entire AOI (rectangle)
-sa_1km_grid <- st_make_grid(aoi_utm %>% filter(OBJECTID==3), cellsize = 1000, square = TRUE) # 1km grid for study area (sa)
+#sa_1km_grid <- st_make_grid(aoi_utm %>% filter(OBJECTID==3), cellsize = 1000, square = TRUE) # 1km grid for study area (sa)
+sa_1km_grid <- st_make_grid(aoi_utm %>% filter(OBJECTID!=3), cellsize = 1000, square = TRUE) # 1km grid for study area (sa)
 
 # plot as check
 # ggplot()+
@@ -50,7 +51,7 @@ sa_1km_points <- st_point_on_surface(sa_1km_grid)
 ggplot()+
   geom_sf(data = sa_1km_grid) +
   geom_sf(data=sa_1km_points) +
-  geom_sf(data = aoi_utm %>% filter(OBJECTID==3), lwd=2, col="red", fill=NA)
+  geom_sf(data = aoi_utm %>% filter(OBJECTID!=3), lwd=2, col="red", fill=NA)
 
 # now have spatial grid, spatial points and study area boundary objects
 # can proceed to Task 2 - load covariates and join to spatial points
