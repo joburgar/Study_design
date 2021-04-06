@@ -54,6 +54,7 @@ ggplot()+
   geom_sf(data = sa_1km_grid, fill=NA) +
   geom_sf(data=sa_1km_points) +
   geom_sf(data = aoi_utm %>% filter(OBJECTID==3), lwd=2, col="red", fill=NA)+
+  geom_sf(data = aoi_utm %>% filter(OBJECTID!=3), lwd=2, col="blue", fill=NA)+
   geom_sf(data=aoi.wtrcrs, lwd=1.5, col="blue") +
   geom_sf(data=aoi.DRA, lwd=0.8, col="brown")
 
@@ -73,7 +74,8 @@ aoi.VRI <- aoi.VRI[complete.cases(aoi.VRI$PROJ_HEIGHT_1),]
 # determine area within each release site with tree height in various classes
 # first create an area field
 aoi.VRI$area <- st_area(aoi.VRI)
-sa.VRI <- st_intersection(aoi.VRI, aoi %>% filter(OBJECTID==3))
+#sa.VRI <- st_intersection(aoi.VRI, aoi %>% filter(OBJECTID==3))
+sa.VRI <- st_intersection(aoi.VRI, aoi %>% filter(OBJECTID!=3))
 
 # plot to check - clipped the Anderson release area
 names(sa.VRI)
@@ -82,6 +84,7 @@ ggplot()+
   scale_fill_brewer(palette="Greens") +
   scale_color_brewer(palette="Greens") +
   geom_sf(data = aoi_utm %>% filter(OBJECTID==3), lwd=2, col="red", fill=NA) +
+  geom_sf(data = aoi_utm %>% filter(OBJECTID!=3), lwd=2, col="blue", fill=NA) +
   theme(legend.title=element_blank())
 
 proj_hgt_area <- as.data.frame(sa.VRI %>% group_by(PROJ_HEIGHT_1_cat) %>% 
@@ -107,7 +110,9 @@ sa_smpl_lcns <- as.data.frame(st_coordinates(sa_1km_points))
 # need to change all line features to utm so can calculate distance in m
 # retain points >100 m from large lakes, rivers, and roads
 #- watercourses
-sa.wtrcrs <- aoi.wtrcrs %>% st_intersection(aoi %>% filter(OBJECTID==3)) %>% st_transform(crs=26910)
+# sa.wtrcrs <- aoi.wtrcrs %>% st_intersection(aoi %>% filter(OBJECTID==3)) %>% st_transform(crs=26910)
+sa.wtrcrs <- aoi.wtrcrs %>% st_intersection(aoi %>% filter(OBJECTID!=3)) %>% st_transform(crs=26910)
+# no wtrcrs at 5M scale in two smaller cells
 sa.wtrcrs.dist <- st_nn(sa_1km_points, sa.wtrcrs, k=1, returnDist = T)
 
 sa_smpl_lcns$wtr_dist <- unlist(sa.wtrcrs.dist$dist)
@@ -118,6 +123,7 @@ sa_smpl_lcns$wtr_use <- as.factor(ifelse(sa_smpl_lcns$wtr_dist>100,"yes","no"))
   
 #- roads
 sa.DRA <- aoi.DRA %>% st_intersection(aoi %>% filter(OBJECTID==3)) %>% st_transform(crs=26910)
+sa.DRA <- aoi.DRA %>% st_intersection(aoi %>% filter(OBJECTID!=3)) %>% st_transform(crs=26910)
 sa.road.dist <- st_nn(sa_1km_points, sa.DRA, k=1, returnDist = T)
 
 sa_smpl_lcns$road_dist <- unlist(sa.road.dist$dist)
@@ -136,7 +142,7 @@ sa_smpl_lcns$WHA_dist <- unlist(sa.WHA.dist$dist)
 sa_smpl_lcns$WHA_use <- as.factor(ifelse(sa_smpl_lcns$WHA_dist==0,"yes","no"))
 
 ###--- sampling locations available to use
-sa_smpl_lcns$options <- as.factor(ifelse(sa_smpl_lcns$wtr_use=="yes" & 
+sa_smpl_lcns$options <- as.factor(ifelse(#sa_smpl_lcns$wtr_use=="yes" & 
                                            sa_smpl_lcns$road_use=="yes" &
                                            sa_smpl_lcns$WHA_use=="yes", "available","exclude"))
 
@@ -163,29 +169,88 @@ sa_smpl_lcns$veg_height <- sa.VRI$PROJ_HEIGHT_1[match(sa_smpl_lcns$veg_height,ro
 
 ###--- create sf object from sampling location data frame
 sa_smpl_lcns.sf <- st_as_sf(sa_smpl_lcns, coords = c("X","Y"), crs = 26910)
-sa_smpl_lcns.sf <- st_intersection(sa_smpl_lcns.sf, aoi_utm %>% filter(OBJECTID==3)) %>% select(-Nmae, -SHAPE_Leng, -SHAPE_Area)
+# sa_smpl_lcns.sf <- st_intersection(sa_smpl_lcns.sf, aoi_utm %>% filter(OBJECTID==3)) %>% select(-Nmae, -SHAPE_Leng, -SHAPE_Area)
+sa_smpl_lcns.sf <- st_intersection(sa_smpl_lcns.sf, aoi_utm %>% filter(OBJECTID!=3)) %>% select(-Nmae, -SHAPE_Leng, -SHAPE_Area)
 sa_smpl_lcns.sf %>% count(options) # only 73 available sampling locations, 83 excluded based on proximity to roads/river and WHA occurrence
 sa_smpl_lcns.sf %>% filter(options=="available") %>% summarise(min(veg_height), mean(veg_height))
 
+sa_smpl_lcns.sf %>% filter(options=="available") %>% count(OBJECTID)
 
-# plot to check - clipped the Anderson release area
+# plot to check - clipped the appropriate area
 ggplot()+
   geom_sf(data = sa.VRI, aes(fill=PROJ_HEIGHT_1_cat, col=NA)) +
   scale_fill_brewer(palette="Greens") +
   scale_color_brewer(palette="Greens") +
   geom_sf(data = aoi_utm %>% filter(OBJECTID==3), lwd=2, col="red", fill=NA) +
+  geom_sf(data = aoi_utm %>% filter(OBJECTID!=3), lwd=2, col="blue", fill=NA) +
   geom_sf(data = sa_smpl_lcns.sf %>% filter(options=="available") ,size = 2, shape = 23, fill = "darkred") +
   theme(legend.title=element_blank())
 
 # export shapefile
-st_write(sa_smpl_lcns.sf, paste0(getwd(),"/out/Anderson_ARU_opts.shp"))
+st_write(sa_smpl_lcns.sf, paste0(getwd(),"/out/SU_ARU_opts.shp"))
 
 # plot to check
 ggplot()+
   geom_sf(data=aoi.WHA %>% st_transform(crs=26910), aes(fill=COMMON_SPECIES_NAME), color=NA)+  # use color=NA to remove border lines
   geom_sf(data = sa_smpl_lcns.sf %>% filter(options=="available")) +
-  geom_sf(data = aoi %>% filter(OBJECTID==3), lwd=2, col="red", fill=NA)+
+  geom_sf(data = aoi %>% filter(OBJECTID!=3), lwd=2, col="red", fill=NA)+
   geom_sf(data=sa.wtrcrs, lwd=1.5, col="blue") +
   geom_sf(data=sa.DRA %>% filter(FEATURE_TYPE=="Road"), lwd=0.8, col="brown") +
   theme(legend.position = "none")
-ggsave("Anderson_ARU_options.png",plot=last_plot(), dpi=300)
+# ggsave("Anderson_ARU_options.png",plot=last_plot(), dpi=300)
+ggsave("SU_ARU_options.png",plot=last_plot(), dpi=300)
+
+#####################################################################################
+###--- view OSM data and download appropriate section for study area
+aoi_latlon <- st_transform(aoi, crs=4326)
+st_bbox(aoi_latlon)
+
+LAT1 = st_bbox(aoi_latlon)[2] ; LAT2 = st_bbox(aoi_latlon)[4]
+LON1 = st_bbox(aoi_latlon)[3] ; LON2 = st_bbox(aoi_latlon)[1]
+
+#our background map
+map <- openmap(c(LAT2,LON1), c(LAT1,LON2), zoom = NULL,
+               type = c("osm", "stamen-toner", "stamen-terrain","stamen-watercolor", "esri","esri-topo")[3],
+               mergeTiles = TRUE)
+
+## OSM CRS :: "+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +no_defs"
+map.latlon <- openproj(map, projection = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+
+## create point data
+#- smaller polygons
+sa_smpl_lcns_latlon <- st_transform(sa_smpl_lcns.sf, crs=4326)
+sa_smpl_lcns_latlon$Longitude <- st_coordinates(sa_smpl_lcns_latlon)[,1]
+sa_smpl_lcns_latlon$Latitude <- st_coordinates(sa_smpl_lcns_latlon)[,2]
+
+#- Anderson polygon
+AARU <- st_read(dsn="./out", layer="Anderson_ARU_opts") %>% st_transform(crs=4326)
+AARU$Longitude <- st_coordinates(AARU)[,1]
+AARU$Latitude <- st_coordinates(AARU)[,2]
+
+ARU_plot_2021 <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+  labs(title = "Potential ARU Locations - 2021",x = "Longitude", y="Latitude")+
+  geom_point(data=sa_smpl_lcns_latlon[sa_smpl_lcns_latlon$options=="available",], 
+             aes(x=Longitude, y=Latitude, fill=as.factor(OBJECTID)), size=4, shape=21)+
+  geom_point(data=AARU[AARU$options=="available",], 
+             aes(x=Longitude, y=Latitude), size=4, shape=21, fill="blue") +
+  theme(legend.position = "none")
+ARU_plot_2021
+
+Cairo(file="out/ARU_plot_2021.PNG",
+      type="png",
+      width=3000,
+      height=2200,
+      pointsize=15,
+      bg="white",
+      dpi=300)
+ARU_plot_2021
+dev.off()
+
+# plot to check
+ggplot()+
+  geom_sf(data=aoi.WHA %>% st_transform(crs=26910), aes(fill=COMMON_SPECIES_NAME), color=NA)+  # use color=NA to remove border lines
+  geom_sf(data = sa_smpl_lcns.sf %>% filter(options=="available")) +
+  geom_sf(data = aoi %>% filter(OBJECTID!=3), lwd=2, col="red", fill=NA)+
+  geom_sf(data=sa.wtrcrs, lwd=1.5, col="blue") +
+  geom_sf(data=sa.DRA %>% filter(FEATURE_TYPE=="Road"), lwd=0.8, col="brown") +
+  theme(legend.position = "none")
