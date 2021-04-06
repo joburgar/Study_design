@@ -29,29 +29,42 @@ lapply(list.of.packages, require, character.only = TRUE)
 
 ###--- Area of Interest (AOI) is larger than Study Area
 # keep in mind that WGS84 lat/long espg = 4326; BC Albers espg = 3005; NAD83 / UTM zone 10N espg = 26910 
+
+# for Skwawka / Sechelt Peninsula camera study
+GISDir <- "//spatialfiles.bcgov/work/wlap/sry/Workarea/jburgar/Elk"
+EPU_poly <- st_read(dsn=GISDir, layer="EPU_NA")
+aoi <- EPU_poly %>% filter(EPU_Unit_N=="Skwawka")
+
+# for SPOW / BDOW ARU study  
 aoi <- st_read(dsn = "./data", layer = "BDOW_removalsites_20210330") # %>% st_transform(crs = 3005)
+
 aoi_utm <- st_transform(aoi, crs=26910) # to have in metres for specifying grid cell size
 
 # plot as check and to ensure correct AOI for fishnet
 # ggplot()+
 #   geom_sf(data = aoi, aes(fill=as.factor(OBJECTID)))
 
-aoi_1km_grid <- st_make_grid(st_bbox(aoi_utm), cellsize=1000, square=TRUE) # 1km (1000 m) grid for entire AOI (rectangle)
-#sa_1km_grid <- st_make_grid(aoi_utm %>% filter(OBJECTID==3), cellsize = 1000, square = TRUE) # 1km grid for study area (sa)
-sa_1km_grid <- st_make_grid(aoi_utm %>% filter(OBJECTID!=3), cellsize = 1000, square = TRUE) # 1km grid for study area (sa)
+cellsize <- 1000 # owls
+cellsize <- 2000 # elk
+
+
+aoi_grid <- sa_grid <- st_make_grid(st_bbox(aoi_utm), cellsize=cellsize, square=TRUE) #  grid for entire AOI (rectangle)
+#sa_grid <- st_make_grid(aoi_utm %>% filter(OBJECTID==3), cellsize = cellsize, square = TRUE) # 1km grid for study area (sa)
+sa_grid <- st_make_grid(aoi_utm %>% filter(OBJECTID!=3), cellsize = cellsize, square = TRUE) # 1km grid for study area (sa)
 
 # plot as check
 # ggplot()+
-#   geom_sf(data = sa_1km_grid) +
+#   geom_sf(data = sa_grid) +
 #   geom_sf(data = aoi_utm, aes(fill=as.factor(OBJECTID)))
 
-sa_1km_points <- st_point_on_surface(sa_1km_grid)
+sa_points <- st_point_on_surface(sa_grid)  # if using portion of aoi
+sa_points <- st_intersection(sa_points, aoi_utm)
 
 # plot as check
 ggplot()+
-  geom_sf(data = sa_1km_grid) +
-  geom_sf(data=sa_1km_points) +
-  geom_sf(data = aoi_utm %>% filter(OBJECTID!=3), lwd=2, col="red", fill=NA)
+  geom_sf(data = sa_grid) +
+  geom_sf(data = sa_points) +
+  geom_sf(data = aoi_utm, lwd=2, col="red", fill=NA)
 
 # now have spatial grid, spatial points and study area boundary objects
 # can proceed to Task 2 - load covariates and join to spatial points
