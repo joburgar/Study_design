@@ -75,8 +75,8 @@ aoi.VRI <- aoi.VRI[complete.cases(aoi.VRI$PROJ_HEIGHT_1),]
 aoi.VRI$area <- st_area(aoi.VRI)
 sa.VRI <- st_intersection(aoi.VRI, aoi %>% filter(OBJECTID==3))
 
-
 # plot to check - clipped the Anderson release area
+names(sa.VRI)
 ggplot()+
   geom_sf(data = sa.VRI, aes(fill=PROJ_HEIGHT_1_cat, col=NA)) +
   scale_fill_brewer(palette="Greens") +
@@ -105,32 +105,87 @@ proj_hgt_area %>% select(prop) %>% round(2)
 sa_smpl_lcns <- as.data.frame(st_coordinates(sa_1km_points))
 
 # need to change all line features to utm so can calculate distance in m
-
+# retain points >100 m from large lakes, rivers, and roads
+#- watercourses
 sa.wtrcrs <- aoi.wtrcrs %>% st_intersection(aoi %>% filter(OBJECTID==3)) %>% st_transform(crs=26910)
 sa.wtrcrs.dist <- st_nn(sa_1km_points, sa.wtrcrs, k=1, returnDist = T)
-
-sa.DRA <- aoi.DRA %>% st_intersection(aoi %>% filter(OBJECTID==3)) %>% st_transform(crs=26910)
-sa.road.dist <- st_nn(sa_1km_points, sa.DRA, k=1, returnDist = T)
-
 
 sa_smpl_lcns$wtr_dist <- unlist(sa.wtrcrs.dist$dist)
 sa_smpl_lcns$wtr_type <- unlist(sa.wtrcrs.dist$nn)
 sa_smpl_lcns$wtr_type <- sa.wtrcrs$name_en[match(sa_smpl_lcns$wtr_type,rownames(sa.wtrcrs))]
 
+sa_smpl_lcns$wtr_use <- as.factor(ifelse(sa_smpl_lcns$wtr_dist>100,"yes","no"))
+  
+#- roads
 sa.DRA <- aoi.DRA %>% st_intersection(aoi %>% filter(OBJECTID==3)) %>% st_transform(crs=26910)
 sa.road.dist <- st_nn(sa_1km_points, sa.DRA, k=1, returnDist = T)
 
 sa_smpl_lcns$road_dist <- unlist(sa.road.dist$dist)
 sa_smpl_lcns$road_type <- unlist(sa.road.dist$nn)
 sa_smpl_lcns$road_type <- sa.DRA$FEATURE_TYPE[match(sa_smpl_lcns$road_type,rownames(sa.DRA))]
+summary(as.factor(sa_smpl_lcns$road_type))
 
+sa_smpl_lcns$road_use <- as.factor(case_when(sa_smpl_lcns$road_type=="Road" & sa_smpl_lcns$road_dist<100 ~ "no",
+                                             TRUE ~ "yes"))
 
-str(sa.road.dist)
+#- WHA
 # keep only sampling locations within WHA
-# retain points >100 m from large lakes, rivers, and roads
+sa.WHA.dist <- st_nn(sa_1km_points, aoi.WHA %>% st_transform(crs=26910), k=1, returnDist = T)
+sa_smpl_lcns$WHA_dist <- unlist(sa.WHA.dist$dist) 
+
+sa_smpl_lcns$WHA_use <- as.factor(ifelse(sa_smpl_lcns$WHA_dist==0,"yes","no"))
+
+###--- sampling locations available to use
+sa_smpl_lcns$options <- as.factor(ifelse(sa_smpl_lcns$wtr_use=="yes" & 
+                                           sa_smpl_lcns$road_use=="yes" &
+                                           sa_smpl_lcns$WHA_use=="yes", "available","exclude"))
+
 # exclude points with too steep slope (are we going to aim for this?)
 # random stratify remaining based on VRI veg height data
 # prioritise within VRI category
 # check spatial distribution to ensure sampling across landscape
 
-# 1 hr 12:30-1:30 April 5
+#- VRI
+# add in type of Veg
+sa.VRI <- sa.VRI %>% st_transform(crs=26910)
+sa.VRI.dist <- st_nn(sa_1km_points, sa.VRI, k=1, returnDist = T)
+
+# check the range of age classes in study area
+sa.VRI$PROJ_AGE_1
+sa.VRI.row <- unlist(sa.VRI.dist$nn)
+sa.VRI.age <- sa.VRI %>% filter(rownames(sa.VRI) %in% sa.VRI.row) %>% select(PROJ_AGE_1) %>% st_drop_geometry()
+summary(sa.VRI.age) # ranges from 2 to 374 years, median = 144, mean = 148.6
+hist(sa.VRI.age$PROJ_AGE_1, breaks = 50)
+
+sa_smpl_lcns$veg_dist <- unlist(sa.VRI.dist$dist)
+sa_smpl_lcns$veg_height <- unlist(sa.VRI.dist$nn)
+sa_smpl_lcns$veg_height <- sa.VRI$PROJ_HEIGHT_1[match(sa_smpl_lcns$veg_height,rownames(sa.VRI))]
+
+###--- create sf object from sampling location data frame
+sa_smpl_lcns.sf <- st_as_sf(sa_smpl_lcns, coords = c("X","Y"), crs = 26910)
+sa_smpl_lcns.sf <- st_intersection(sa_smpl_lcns.sf, aoi_utm %>% filter(OBJECTID==3)) %>% select(-Nmae, -SHAPE_Leng, -SHAPE_Area)
+sa_smpl_lcns.sf %>% count(options) # only 73 available sampling locations, 83 excluded based on proximity to roads/river and WHA occurrence
+sa_smpl_lcns.sf %>% filter(options=="available") %>% summarise(min(veg_height), mean(veg_height))
+
+
+# plot to check - clipped the Anderson release area
+ggplot()+
+  geom_sf(data = sa.VRI, aes(fill=PROJ_HEIGHT_1_cat, col=NA)) +
+  scale_fill_brewer(palette="Greens") +
+  scale_color_brewer(palette="Greens") +
+  geom_sf(data = aoi_utm %>% filter(OBJECTID==3), lwd=2, col="red", fill=NA) +
+  geom_sf(data = sa_smpl_lcns.sf %>% filter(options=="available") ,size = 2, shape = 23, fill = "darkred") +
+  theme(legend.title=element_blank())
+
+# export shapefile
+st_write(sa_smpl_lcns.sf, paste0(getwd(),"/out/Anderson_ARU_opts.shp"))
+
+# plot to check
+ggplot()+
+  geom_sf(data=aoi.WHA %>% st_transform(crs=26910), aes(fill=COMMON_SPECIES_NAME), color=NA)+  # use color=NA to remove border lines
+  geom_sf(data = sa_smpl_lcns.sf %>% filter(options=="available")) +
+  geom_sf(data = aoi %>% filter(OBJECTID==3), lwd=2, col="red", fill=NA)+
+  geom_sf(data=sa.wtrcrs, lwd=1.5, col="blue") +
+  geom_sf(data=sa.DRA %>% filter(FEATURE_TYPE=="Road"), lwd=0.8, col="brown") +
+  theme(legend.position = "none")
+ggsave("Anderson_ARU_options.png",plot=last_plot(), dpi=300)
