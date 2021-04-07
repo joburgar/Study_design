@@ -21,7 +21,7 @@ tz = Sys.timezone() # specify timezone in BC
 
 # Load Packages
 list.of.packages <- c("tidyverse", "lubridate","bcdata", "bcmaps","sp","sf", "rgdal", "readxl", "Cairo",
-                      "OpenStreetMap", "ggmap", "nngeo")
+                      "OpenStreetMap", "ggmap", "nngeo", "raster")
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
@@ -34,9 +34,10 @@ lapply(list.of.packages, require, character.only = TRUE)
 GISDir <- "//spatialfiles.bcgov/work/wlap/sry/Workarea/jburgar/Elk"
 EPU_poly <- st_read(dsn=GISDir, layer="EPU_NA")
 aoi <- EPU_poly %>% filter(EPU_Unit_N=="Skwawka")
+aoi <- EPU_poly %>% filter(EPU_Unit_N=="Sechelt Peninsula")
 
 # for SPOW / BDOW ARU study  
-aoi <- st_read(dsn = "./data", layer = "BDOW_removalsites_20210330") # %>% st_transform(crs = 3005)
+# aoi <- st_read(dsn = "./data", layer = "BDOW_removalsites_20210330") # %>% st_transform(crs = 3005)
 
 aoi_utm <- st_transform(aoi, crs=26910) # to have in metres for specifying grid cell size
 
@@ -49,8 +50,8 @@ cellsize <- 2000 # elk
 
 
 aoi_grid <- sa_grid <- st_make_grid(st_bbox(aoi_utm), cellsize=cellsize, square=TRUE) #  grid for entire AOI (rectangle)
-#sa_grid <- st_make_grid(aoi_utm %>% filter(OBJECTID==3), cellsize = cellsize, square = TRUE) # 1km grid for study area (sa)
-sa_grid <- st_make_grid(aoi_utm %>% filter(OBJECTID!=3), cellsize = cellsize, square = TRUE) # 1km grid for study area (sa)
+# sa_grid <- st_make_grid(aoi_utm %>% filter(OBJECTID==3), cellsize = cellsize, square = TRUE) # 1km grid for study area (sa)
+# sa_grid <- st_make_grid(aoi_utm %>% filter(OBJECTID!=3), cellsize = cellsize, square = TRUE) # 1km grid for study area (sa)
 
 # plot as check
 # ggplot()+
