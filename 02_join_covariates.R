@@ -35,6 +35,7 @@ aoi.cded.utm <- st_transform(aoi.cded.sf, crs = 26910) # convert to utm for join
 aoi.RLW <- bcdc_query_geodata("450d4230-c552-4b61-add9-43ff2f870f59") %>%  #NTS  River, Lake and Wetland
   filter(INTERSECTS(aoi)) %>%
   collect()
+aoi.RLW <- aoi.RLW %>% st_intersection(aoi)
 
 # FWA_WATERSHED_GROUPS Freshwater Atlas Watershed Boundaries
 # bcdc_search("freshwater", res_format = "wms")
@@ -48,6 +49,14 @@ glimpse(aoi.FWA)
 aoi.DRA <- bcdc_query_geodata("bb060417-b6e6-4548-b837-f9060d94743e") %>%  
   filter(INTERSECTS(aoi)) %>%
   collect()
+aoi.DRA <- aoi.DRA %>% st_intersection(aoi)
+
+# transportation layer (Digital Road Atlas)
+bcdc_search("train", res_format = "wms")
+aoi.train <- bcdc_query_geodata("4ff93cda-9f58-4055-a372-98c22d04a9f8") %>%  
+  filter(INTERSECTS(aoi)) %>%
+  collect()
+aoi.train <- aoi.train %>% st_intersection(aoi)
 
 # approved WHAs & UWRs (GAR Orders)
 # bcdc_search("WHA", res_format = "wms")
@@ -74,10 +83,12 @@ aoi.VRI <- bcdc_query_geodata("2ebb35d8-c82f-4a17-9c96-612ac3532d55") %>%
 
 ggplot()+
   geom_sf(data=aoi.WHA, aes(fill=COMMON_SPECIES_NAME), color=NA)+  # use color=NA to remove border lines
-  geom_sf(data=sa_points) +
   geom_sf(data = aoi_utm, lwd=2, col="red", fill=NA)+
   geom_sf(data=aoi.RLW, lwd=1, col="blue") +
-  geom_sf(data=aoi.DRA, lwd=0.8, col="brown")
+  geom_sf(data=aoi.DRA[aoi.DRA$ROAD_NAME_FULL=="Trans-Canada Hwy",], lwd=1, col="brown") +
+  geom_sf(data=aoi.DRA, lwd=0.8, col="gray") +
+  geom_sf(data=aoi.train, lwd=0.8, col="black") +
+  geom_sf(data=sa_points) 
 
 aoi.VRI %>% filter(!is.na(PROJ_HEIGHT_1)) %>%  
   summarise(mean = mean(PROJ_HEIGHT_1), min = min(PROJ_HEIGHT_1), max=max(PROJ_HEIGHT_1), sd = sd(PROJ_HEIGHT_1))
@@ -125,7 +136,6 @@ proj_hgt_area %>% dplyr::select(prop) %>% round(2)
 # 5 0.03
 # so, if we have 60 ARUs, aim for 5 in H0-10, 8 in H10-20, 26 in H20-30, 19 in H30-40, 2 in H40+
 
-
 sa_smpl_lcns <- as.data.frame(st_coordinates(sa_points))
 
 # need to change all line features to utm so can calculate distance in m
@@ -142,7 +152,6 @@ sa_smpl_lcns$wtr_dist <- unlist(sa.wtrcrs.dist$dist)
 sa_smpl_lcns$wtr_type <- unlist(sa.wtrcrs.dist$nn)
 sa_smpl_lcns$wtr_type <- sa.wtrcrs$FCODE[match(sa_smpl_lcns$wtr_type,rownames(sa.wtrcrs))]
 
-
 # sa_smpl_lcns$wtr_use <- as.factor(ifelse(sa_smpl_lcns$wtr_dist>100,"yes","no"))
   
 #- roads
@@ -155,8 +164,16 @@ sa_smpl_lcns$road_type <- unlist(sa.road.dist$nn)
 sa_smpl_lcns$road_type <- sa.DRA$FEATURE_TYPE[match(sa_smpl_lcns$road_type,rownames(sa.DRA))]
 summary(as.factor(sa_smpl_lcns$road_type))
 
-sa_smpl_lcns$road_use <- as.factor(case_when(sa_smpl_lcns$road_type=="Road" & sa_smpl_lcns$road_dist<100 ~ "no",
-                                             TRUE ~ "yes"))
+# sa_smpl_lcns$road_use <- as.factor(case_when(sa_smpl_lcns$road_type=="Road" & sa_smpl_lcns$road_dist<100 ~ "no",
+#                                              TRUE ~ "yes"))
+
+# distance to Trans Canada
+sa.HWY.dist <- st_nn(sa_points, sa.DRA %>% filter(HIGHWAY_ROUTE_NUMBER==1), k=1, returnDist = T)
+sa_smpl_lcns$HWY_dist <- unlist(sa.HWY.dist$dist)
+
+# distance to train
+sa.train.dist <- st_nn(sa_points, aoi.train %>% st_transform(crs=26910), k=1, returnDist = T)
+sa_smpl_lcns$train_dist <- unlist(sa.train.dist$dist)
 
 
 #- FWA
@@ -203,49 +220,74 @@ sa_smpl_lcns$veg_dist <- unlist(sa.VRI.dist$dist)
 sa_smpl_lcns$veg_height <- unlist(sa.VRI.dist$nn)
 sa_smpl_lcns$veg_height <- sa.VRI$PROJ_HEIGHT_1[match(sa_smpl_lcns$veg_height,rownames(sa.VRI))]
 
+sa_smpl_lcns$veg_age <- unlist(sa.VRI.dist$nn)
+sa_smpl_lcns$veg_age <- sa.VRI$PROJ_AGE_1[match(sa_smpl_lcns$veg_age,rownames(sa.VRI))]
+
 
 # ###--- sampling locations available to use
-sa_smpl_lcns$options <- as.factor(ifelse(sa_smpl_lcns$wtr_dist>1 &
-                                           #between(sa_smpl_lcns$road_dist,10,1000) &
-                                           between(sa_smpl_lcns$elev,1,1000), "available","exclude"))
+names(sa_smpl_lcns)
+head(sa_smpl_lcns)
+sa_smpl_lcns$locations <- as.factor(ifelse(sa_smpl_lcns$WHA_dist < 1 &
+                                             sa_smpl_lcns$veg_age > 30 &
+                                             #sa_smpl_lcns$wtr_dist > 100 &
+                                             #between(sa_smpl_lcns$road_dist, 100, 2500) &
+                                             sa_smpl_lcns$train_dist > 1000 &
+                                             sa_smpl_lcns$HWY_dist > 1000, "available","exclude"))
+
+sa_smpl_lcns %>% count(locations) # 154 possible locations within the 3 study areas
+
+sa_smpl_lcns$priority <- as.factor(ifelse(sa_smpl_lcns$locations=="available" &
+                                             sa_smpl_lcns$wtr_dist > 100 &
+                                             between(sa_smpl_lcns$road_dist, 100, 2500) &
+                                             sa_smpl_lcns$train_dist > 2000 &
+                                             sa_smpl_lcns$HWY_dist > 2000, 1,
+                                          ifelse(sa_smpl_lcns$locations=="exclude",3,2)))
+
+sa_smpl_lcns %>% group_by(priority) %>% count(locations) # 154 possible locations within the 3 study areas
 
 ###--- create sf object from sampling location data frame
 sa_smpl_lcns.sf <- st_as_sf(sa_smpl_lcns, coords = c("X","Y"), crs = 26910)
-# sa_smpl_lcns.sf <- st_intersection(sa_smpl_lcns.sf, aoi_utm %>% filter(OBJECTID==3)) %>% select(-Nmae, -SHAPE_Leng, -SHAPE_Area)
+sa_smpl_lcns.sf <- st_intersection(sa_smpl_lcns.sf, aoi_utm)
 # sa_smpl_lcns.sf <- st_intersection(sa_smpl_lcns.sf, aoi_utm) #%>% select(-Nmae, -SHAPE_Leng, -SHAPE_Area)
 
 
-sa_smpl_lcns.sf %>% count(options) # only 73 available sampling locations, 83 excluded based on proximity to roads/river and WHA occurrence
-sa_smpl_lcns.sf %>% filter(options=="available") %>% summarise(min(veg_height), mean(veg_height), max(veg_height))
+sa_smpl_lcns.sf %>% count(locations) # 110 available sampling locations, 83 excluded based on proximity to roads/river and WHA occurrence
+sa_smpl_lcns.sf %>% filter(locations=="available") %>% summarise(min(veg_height), mean(veg_height), max(veg_height))
 
-# sa_smpl_lcns.sf %>% filter(options=="available") %>% count(OBJECTID)
+sa_smpl_lcns.sf %>% filter(locations=="available") %>% count(OBJECTID)
+sa_smpl_lcns.sf  %>% filter(locations=="available")%>% group_by(OBJECTID) %>% count(Nmae)
+sa_smpl_lcns.sf  %>% group_by(priority) %>% count(OBJECTID) # where 1 = Uzltius, 2 = Spuzzum and 3 = Anderson
 
 # plot to check - clipped the appropriate area
 ggplot()+
-  geom_sf(data = sa.VRI, aes(fill=PROJ_HEIGHT_1_cat, col=NA)) +
+  geom_sf(data = sa.VRI, aes(fill=PROJ_HEIGHT_1_cat, col=NA)) +# use color=NA to remove border lines
   scale_fill_brewer(palette="Greens") +
   scale_color_brewer(palette="Greens") +
-  geom_sf(data = sa_smpl_lcns.sf %>% filter(options=="available") ,size = 2, shape = 23, fill = "darkred") +
+  geom_sf(data = sa_smpl_lcns.sf %>% filter(locations=="available") ,size = 2, shape = 23, fill = "darkred") +
   geom_sf(data = aoi_grid, size=0.5, col="gray", fill=NA)+
-  geom_sf(data = aoi_utm %>% filter(OBJECTID!=3), lwd=2, col="blue", fill=NA) +
+  geom_sf(data = aoi_utm, lwd=2, col="blue", fill=NA) +
     theme(legend.title=element_blank())
-ggsave("Skwawka_options_grid.png",plot=last_plot(), dpi=300)
+# ggsave("Skwawka_options_grid.png",plot=last_plot(), dpi=300)
+ggsave("Owl_options_grid.png",plot=last_plot(), dpi=300)
 
 
 # export shapefile
-st_write(sa_smpl_lcns.sf, paste0(getwd(),"/out/SecheltPen_smpln_opts.shp"), delete_layer = TRUE)
+st_write(sa_smpl_lcns.sf, paste0(getwd(),"/out/Owl_smpln_opts.shp"), delete_layer = TRUE)
 
 # plot to check
 ggplot()+
-  geom_sf(data=aoi.WHA %>% st_transform(crs=26910), aes(fill=COMMON_SPECIES_NAME), color=NA)+  # use color=NA to remove border lines
-  geom_sf(data = sa_smpl_lcns.sf %>% filter(options=="available")) +
+  geom_sf(data=aoi.WHA %>% st_transform(crs=26910))+  
+  geom_sf(data = sa_smpl_lcns.sf %>% filter(priority!="priority"), aes(fill=priority, col=priority)) +
   # geom_sf(data = sa_smpl_lcns.sf %>% filter(elev>0), col="red") +
-  geom_sf(data = aoi %>% filter(OBJECTID!=3), lwd=2, col="red", fill=NA)+
+  geom_sf(data = aoi %>% filter(OBJECTID==3), lwd=2, col="red", fill=NA)+
+  geom_sf(data = aoi %>% filter(OBJECTID!=3), lwd=2, col="blue", fill=NA)+
   geom_sf(data=sa.wtrcrs, lwd=1.5, col="blue") +
-  geom_sf(data=sa.DRA %>% filter(FEATURE_TYPE=="Road"), lwd=0.8, col="brown") +
+  geom_sf(data=sa.DRA %>% filter(FEATURE_TYPE=="Road"), lwd=0.5, col="brown") +
   theme(legend.position = "none")
 # ggsave("Anderson_ARU_options.png",plot=last_plot(), dpi=300)
-ggsave("SU_ARU_options.png",plot=last_plot(), dpi=300)
+ggsave("Owl_ARU_priority.png",plot=last_plot(), dpi=300)
+
+st_write(sa_smpl_lcns.sf %>% st_transform(crs=4326), "lcns.kml", driver = "kml", delete_dsn = TRUE)
 
 #####################################################################################
 ###--- view OSM data and download appropriate section for study area
@@ -257,7 +299,7 @@ LON1 = st_bbox(aoi_latlon)[3] ; LON2 = st_bbox(aoi_latlon)[1]
 
 #our background map
 map <- openmap(c(LAT2,LON1), c(LAT1,LON2), zoom = NULL,
-               type = c("osm", "stamen-toner", "stamen-terrain","stamen-watercolor", "esri","esri-topo")[3],
+               type = c("osm", "stamen-toner", "stamen-terrain","stamen-watercolor", "esri","esri-topo")[6],
                mergeTiles = TRUE)
 
 ## OSM CRS :: "+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +no_defs"
@@ -276,14 +318,14 @@ sa_smpl_lcns_latlon$Latitude <- st_coordinates(sa_smpl_lcns_latlon)[,2]
 
 smpl_plot_2021 <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
   labs(title = "Potential Sampling Locations - 2021",x = "Longitude", y="Latitude")+
-  geom_point(data=sa_smpl_lcns_latlon[sa_smpl_lcns_latlon$options=="available",], 
-             aes(x=Longitude, y=Latitude, fill=elev), size=4, shape=21)+
-  # geom_point(data=AARU[AARU$options=="available",], 
+  geom_point(data=sa_smpl_lcns_latlon[sa_smpl_lcns_latlon$locations=="available",], 
+             aes(x=Longitude, y=Latitude, fill=OBJECTID), size=4, shape=21)+
+  # geom_point(data=AARU[AARU$options=="available",],
   #            aes(x=Longitude, y=Latitude), size=4, shape=21, fill="blue") +
-  # theme(legend.position = "none")
+  theme(legend.position = "none")
 smpl_plot_2021
 
-Cairo(file="out/SechPen_smpl_plot_2021.PNG",
+Cairo(file="out/Owl_smpl_plot_2021.PNG",
       type="png",
       width=3000,
       height=2200,
