@@ -36,8 +36,13 @@ EPU_poly <- st_read(dsn=GISDir, layer="EPU_NA")
 aoi <- EPU_poly %>% filter(EPU_Unit_N=="Skwawka")
 aoi <- EPU_poly %>% filter(EPU_Unit_N=="Sechelt Peninsula")
 
+# T4W_StudyArea <- EPU_poly %>% filter(EPU_Unit_N=="Skwawka" | EPU_Unit_N=="Sechelt Peninsula")
+# colnames(T4W_StudyArea)[2] <- "Study_Area"
+# st_write(T4W_StudyArea, "out/T4W_StudyArea.shp")
+
+
 # for SPOW / BDOW ARU study  
-# aoi <- st_read(dsn = "./data", layer = "BDOW_removalsites_20210330") # %>% st_transform(crs = 3005)
+aoi <- st_read(dsn = "./data", layer = "BDOW_removalsites_20210330") # %>% st_transform(crs = 3005)
 
 aoi_utm <- st_transform(aoi, crs=26910) # to have in metres for specifying grid cell size
 
