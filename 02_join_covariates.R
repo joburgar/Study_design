@@ -31,6 +31,8 @@ retrieve_geodata_aoi <- function (ID=ID){
 #####################################################################################
 
 aoi <- SKA_MAN_ARU[[1]] %>% st_transform(crs = 3005)
+aoi_utm <- SKA_MAN_ARU[[2]] %>% st_intersection(aoi %>% st_transform(26910))
+sa_points <- SKA_MAN_ARU[[3]]
 
 # load covariates from bcmaps
 # digital elevation raster
@@ -71,7 +73,7 @@ aoi.FWA <- retrieve_geodata_aoi(ID = "ab758580-809d-4e11-bb2c-df02ac5465c9")
 aoi.DRA <- retrieve_geodata_aoi(ID = "bb060417-b6e6-4548-b837-f9060d94743e")
 
 # transportation layer (Digital Road Atlas)
-bcdc_search("train", res_format = "wms")
+# bcdc_search("train", res_format = "wms")
 aoi.train <- retrieve_geodata_aoi(ID = "4ff93cda-9f58-4055-a372-98c22d04a9f8")
 # no trains in study area
 
@@ -89,7 +91,7 @@ aoi.VRI <- retrieve_geodata_aoi(ID = "2ebb35d8-c82f-4a17-9c96-612ac3532d55")
 
 ggplot()+
   geom_sf(data=aoi.WHA, aes(fill=COMMON_SPECIES_NAME), color=NA)+  # use color=NA to remove border lines
-  geom_sf(data = aoi_utm, lwd=2, col="red", fill=NA)+
+  geom_sf(data = aoi, lwd=2, col="red", fill=NA)+
   geom_sf(data=aoi.RLW, lwd=1, col="blue") +
   geom_sf(data=aoi.DRA, lwd=0.8, col="gray") +
   geom_sf(data=sa_points) 
@@ -119,7 +121,7 @@ ggplot()+
   geom_sf(data = sa.VRI, aes(fill=PROJ_HEIGHT_1_cat, col=NA)) +
   scale_fill_brewer(palette="Greens") +
   scale_color_brewer(palette="Greens") +
-  geom_sf(data = aoi_utm, lwd=2, col="red", fill=NA) +
+  geom_sf(data = aoi_utm , lwd=1, col="red", fill=NA) +
   theme(legend.title=element_blank())
 
 proj_hgt_area <- as.data.frame(sa.VRI %>% group_by(PROJ_HEIGHT_1_cat) %>% 
@@ -145,29 +147,20 @@ sa_smpl_lcns <- as.data.frame(st_coordinates(sa_points))
 # retain points >100 m from large lakes, rivers, and roads
 
 #- watercourses
-aoi.RLW %>% count(FEATURE_CODE)
 sa.wtrcrs <- aoi.RLW %>% st_intersection(aoi) %>% st_transform(crs=26910)
-# no wtrcrs at 5M scale in two smaller cells
 sa.wtrcrs.dist <- st_nn(sa_points, sa.wtrcrs, k=1, returnDist = T)
-
 sa_smpl_lcns$wtr_dist <- unlist(sa.wtrcrs.dist$dist)
 sa_smpl_lcns$wtr_type <- unlist(sa.wtrcrs.dist$nn)
 sa_smpl_lcns$wtr_type <- sa.wtrcrs$DESCRIPTION[match(sa_smpl_lcns$wtr_type,rownames(sa.wtrcrs))]
 
-# sa_smpl_lcns$wtr_use <- as.factor(ifelse(sa_smpl_lcns$wtr_dist>100,"yes","no"))
-  
 #- roads
-# sa.DRA <- aoi.DRA %>% st_intersection(aoi %>% filter(OBJECTID==3)) %>% st_transform(crs=26910)
 sa.DRA <- aoi.DRA %>% st_transform(crs=26910)
 sa.road.dist <- st_nn(sa_points, sa.DRA, k=1, returnDist = T)
-
 sa_smpl_lcns$road_dist <- unlist(sa.road.dist$dist)
 sa_smpl_lcns$road_type <- unlist(sa.road.dist$nn)
 sa_smpl_lcns$road_type <- sa.DRA$FEATURE_TYPE[match(sa_smpl_lcns$road_type,rownames(sa.DRA))]
 summary(as.factor(sa_smpl_lcns$road_type))
 
-# sa_smpl_lcns$road_use <- as.factor(case_when(sa_smpl_lcns$road_type=="Road" & sa_smpl_lcns$road_dist<100 ~ "no",
-#                                              TRUE ~ "yes"))
 
 # distance to Trans Canada
 # sa.HWY.dist <- st_nn(sa_points, sa.DRA %>% filter(HIGHWAY_ROUTE_NUMBER==1), k=1, returnDist = T)
@@ -193,14 +186,13 @@ sa_smpl_lcns$WHA_dist <- unlist(sa.WHA.dist$dist)
 
 # sampling location distance to UWRs
 # sa.UWR.dist <- st_nn(sa_smpl_lcns, aoi.UWR %>% st_transform(crs=26910), k=1, returnDist = T)
-# sa_smpl_lcns$UWR_dist <- unlist(sa.UWR.dist$dist) 
+# sa_smpl_lcns$UWR_dist <- unlist(sa.UWR.dist$dist)
 
 #- Elevation
-# sa.elev.dist <- st_nn(aoi_grid, aoi.cded.utm, k=1, returnDist = T)
-# sa.elev.dist <- st_nn(sa_points, aoi.cded.utm, k=1, returnDist = T)
-# sa_smpl_lcns$elev <- unlist(sa.elev.dist$nn)
-# sa_smpl_lcns$elev <- aoi.cded.utm$elevation[match(sa_smpl_lcns$elev,rownames(aoi.cded.utm))]
-# summary(sa_smpl_lcns$elev)
+sa.elev.dist <- st_nn(sa_points, aoi.cded.utm, k=1, returnDist = T)
+sa_smpl_lcns$elev <- unlist(sa.elev.dist$nn)
+sa_smpl_lcns$elev <- aoi.cded.utm$elevation[match(sa_smpl_lcns$elev,rownames(aoi.cded.utm))]
+summary(sa_smpl_lcns$elev)
 
 # exclude points with too steep slope (are we going to aim for this?)
 # random stratify remaining based on VRI veg height data
@@ -216,7 +208,7 @@ sa.VRI.dist <- st_nn(sa_points, sa.VRI, k=1, returnDist = T)
 sa.VRI$PROJ_AGE_1
 sa.VRI.row <- unlist(sa.VRI.dist$nn)
 sa.VRI.age <- sa.VRI %>% filter(rownames(sa.VRI) %in% sa.VRI.row) %>% dplyr::select(PROJ_AGE_1) %>% st_drop_geometry()
-summary(sa.VRI.age) # ranges from 2 to 374 years, median = 144, mean = 148.6
+summary(sa.VRI.age) # ranges from 39 to 324 years, median = 164, mean = 175
 hist(sa.VRI.age$PROJ_AGE_1, breaks = 20)
 
 sa_smpl_lcns$veg_dist <- unlist(sa.VRI.dist$dist)
@@ -229,26 +221,27 @@ sa_smpl_lcns$veg_age <- sa.VRI$PROJ_AGE_1[match(sa_smpl_lcns$veg_age,rownames(sa
 
 # ###--- sampling locations available to use
 names(sa_smpl_lcns)
-head(sa_smpl_lcns)
+sa_smpl_lcns %>% count(veg_dist)
 sa_smpl_lcns$locations <- as.factor(ifelse(#sa_smpl_lcns$WHA_dist < 1 &
-                                             sa_smpl_lcns$veg_height > 25 &
-                                             sa_smpl_lcns$wtr_dist > 100 &
-                                             # sa_smpl_lcns$train_dist > 1000 &
-                                             # sa_smpl_lcns$HWY_dist > 1000, 
-                                             between(sa_smpl_lcns$road_dist, 100, 2500),
-                                               "available","exclude"))
+  sa_smpl_lcns$veg_dist==0 & sa_smpl_lcns$veg_height > 25 &
+    sa_smpl_lcns$wtr_dist > 100 & 
+    # sa_smpl_lcns$train_dist > 1000 &
+    # sa_smpl_lcns$HWY_dist > 1000, 
+    sa_smpl_lcns$elev < 1200 &
+    between(sa_smpl_lcns$road_dist, 100, 2500), "available","exclude"))
 
 sa_smpl_lcns %>% count(locations) # 154 possible locations within the 3 study areas
-# 89 available and 76 excluded
+nrow(sa_smpl_lcns)
+# 67 available and 98 excluded
 
-sa_smpl_lcns$priority <- as.factor(ifelse(sa_smpl_lcns$locations=="available" &
-                                             sa_smpl_lcns$wtr_dist > 100 &
-                                             between(sa_smpl_lcns$road_dist, 100, 2500) &
-                                             sa_smpl_lcns$train_dist > 2000 &
-                                             sa_smpl_lcns$HWY_dist > 2000, 1,
-                                          ifelse(sa_smpl_lcns$locations=="exclude",3,2)))
-
-sa_smpl_lcns %>% group_by(priority) %>% count(locations) # 154 possible locations within the 3 study areas
+# sa_smpl_lcns$priority <- as.factor(ifelse(sa_smpl_lcns$locations=="available" &
+#                                              sa_smpl_lcns$wtr_dist > 100 &
+#                                              between(sa_smpl_lcns$road_dist, 100, 2500) &
+#                                              sa_smpl_lcns$train_dist > 2000 &
+#                                              sa_smpl_lcns$HWY_dist > 2000, 1,
+#                                           ifelse(sa_smpl_lcns$locations=="exclude",3,2)))
+# 
+# sa_smpl_lcns %>% group_by(priority) %>% count(locations) # 154 possible locations within the 3 study areas
 
 ###--- create sf object from sampling location data frame
 sa_smpl_lcns.sf <- st_as_sf(sa_smpl_lcns, coords = c("X","Y"), crs = 26910)
@@ -268,9 +261,10 @@ ggplot()+
   geom_sf(data = sa.VRI, aes(fill=PROJ_HEIGHT_1_cat, col=NA)) +# use color=NA to remove border lines
   scale_fill_brewer(palette="Greens") +
   scale_color_brewer(palette="Greens") +
-  geom_sf(data = sa_smpl_lcns.sf %>% filter(locations=="available") ,size = 2, shape = 23, fill = "darkred") +
-  geom_sf(data = aoi_grid, size=0.5, col="gray", fill=NA)+
-  geom_sf(data = aoi_utm, lwd=2, col="blue", fill=NA) +
+  geom_sf(data = sa_smpl_lcns.sf ,size = 2, shape = 23, fill = "darkred") +
+  # geom_sf(data = sa_smpl_lcns.sf %>% filter(locations=="available") ,size = 2, shape = 23, fill = "darkred") +
+  geom_sf(data = aoi, size=2, col="blue", fill=NA)+
+  geom_sf(data = aoi_utm, lwd=0.5, col="gray", fill=NA) +
     theme(legend.title=element_blank())
 # ggsave("Skwawka_options_grid.png",plot=last_plot(), dpi=300)
 ggsave("Skagit_ALL_options_grid.png",plot=last_plot(), dpi=300)
