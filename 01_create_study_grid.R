@@ -27,50 +27,48 @@ new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"
 if(length(new.packages)) install.packages(new.packages)
 lapply(list.of.packages, require, character.only = TRUE)
 
+###--- function to create study grid
+# note that this function creates square grids (use square=FALSE for hexagons)
+# this function dissolves multipolygon into single polygon
+# assumes original shapefile is the entire aoi; remove the st_union and st_combine code if want separate study areas within aoi
+
+create_study_grid <- function (dsn=dsn, layer=layer, cellsize=cellsize, output=output){
+  
+  aoi <- st_read(dsn=dsn, layer=layer) %>% st_transform(crs = 3005) # ensures poly is in Albers
+  aoi <- aoi %>% 
+    summarise(across(geometry, ~ st_union(.))) %>%
+    summarise(across(geometry, ~ st_combine(.)))
+  aoi_utm <- st_transform(aoi, crs=26910) # to have in metres for specifying grid cell size
+  aoi_grid <- sa_grid <- st_make_grid(st_bbox(aoi_utm), cellsize=cellsize, square=TRUE) #  grid for entire AOI (rectangle)
+  
+  sa_points <- st_point_on_surface(sa_grid)  # if using portion of aoi
+  sa_points <- st_intersection(sa_points, aoi_utm)
+  
+  st_write(aoi_utm, paste0(getwd(),"/out/",output,"_utm.shp"), delete_layer = TRUE)
+  st_write(aoi_grid %>% st_intersection(aoi_utm), paste0(getwd(),"/out/",output,"_point.shp"), delete_layer = TRUE)
+  st_write(sa_points, paste0(getwd(),"/out/",output,"_grid.shp"), delete_layer = TRUE)
+  
+   return(list(aoi_utm, aoi_grid, sa_points))
+}
+
+#####################################################################################
+
 ###--- Area of Interest (AOI) is larger than Study Area
 # keep in mind that WGS84 lat/long espg = 4326; BC Albers espg = 3005; NAD83 / UTM zone 10N espg = 26910 
-
-# for Skwawka / Sechelt Peninsula camera study
-GISDir <- "//spatialfiles.bcgov/work/wlap/sry/Workarea/jburgar/Elk"
-EPU_poly <- st_read(dsn=GISDir, layer="EPU_NA")
-aoi <- EPU_poly %>% filter(EPU_Unit_N=="Skwawka")
-aoi <- EPU_poly %>% filter(EPU_Unit_N=="Sechelt Peninsula")
-
-# T4W_StudyArea <- EPU_poly %>% filter(EPU_Unit_N=="Skwawka" | EPU_Unit_N=="Sechelt Peninsula")
-# colnames(T4W_StudyArea)[2] <- "Study_Area"
-# st_write(T4W_StudyArea, "out/T4W_StudyArea.shp")
-
-
-# for SPOW / BDOW ARU study  
-aoi <- st_read(dsn = "./data", layer = "BDOW_removalsites_20210330") # %>% st_transform(crs = 3005)
-
-aoi_utm <- st_transform(aoi, crs=26910) # to have in metres for specifying grid cell size
-
-# plot as check and to ensure correct AOI for fishnet
-# ggplot()+
-#   geom_sf(data = aoi, aes(fill=as.factor(OBJECTID)))
 
 cellsize <- 1000 # owls
 cellsize <- 2000 # elk
 
 
-aoi_grid <- sa_grid <- st_make_grid(st_bbox(aoi_utm), cellsize=cellsize, square=TRUE) #  grid for entire AOI (rectangle)
-# sa_grid <- st_make_grid(aoi_utm %>% filter(OBJECTID==3), cellsize = cellsize, square = TRUE) # 1km grid for study area (sa)
-# sa_grid <- st_make_grid(aoi_utm %>% filter(OBJECTID!=3), cellsize = cellsize, square = TRUE) # 1km grid for study area (sa)
+SKA_MAN_ARU <- create_study_grid(dsn= "./data", layer = "Skagis_Manning_ARU_Release_Area_IanVersion", 
+                                 cellsize = 1000, output = "SKA_MAN_ARU")
 
-# plot as check
-# ggplot()+
-#   geom_sf(data = sa_grid) +
-#   geom_sf(data = aoi_utm, aes(fill=as.factor(OBJECTID)))
-
-sa_points <- st_point_on_surface(sa_grid)  # if using portion of aoi
-sa_points <- st_intersection(sa_points, aoi_utm)
 
 # plot as check
 ggplot()+
-  geom_sf(data = sa_grid) +
-  geom_sf(data = sa_points) +
-  geom_sf(data = aoi_utm, lwd=2, col="red", fill=NA)
+  geom_sf(data = SKA_MAN_ARU[[2]] %>% st_intersection(SKA_MAN_ARU[[1]])) +
+  geom_sf(data = SKA_MAN_ARU[[3]]) +
+  geom_sf(data = SKA_MAN_ARU[[1]], lwd=2, col="red", fill=NA)
 
 # now have spatial grid, spatial points and study area boundary objects
 # can proceed to Task 2 - load covariates and join to spatial points
