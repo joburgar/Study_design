@@ -16,11 +16,27 @@
 # written by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - 03-Apr-2021
 #####################################################################################
 
+###--- function to retrieve geodata from BCGW
+
+retrieve_geodata_aoi <- function (ID=ID){
+  aoi.geodata <- bcdc_query_geodata(ID) %>%
+    filter(BBOX(st_bbox(aoi))) %>%
+    collect()
+  aoi.geodata <- aoi.geodata %>% st_intersection(aoi)
+  aoi.geodata$Area_km2 <- st_area(aoi.geodata)*1e-6
+  aoi.geodata <- drop_units(aoi.geodata)
+  return(aoi.geodata)
+}
+
+#####################################################################################
+
+aoi <- SKA_MAN_ARU[[1]] %>% st_transform(crs = 3005)
+
 # load covariates from bcmaps
 # digital elevation raster
 aoi_raster <- cded_raster(aoi) 
 plot(aoi_raster)
-plot(sa_points %>% st_transform(crs = 4326), add= TRUE) # as a check
+plot(SKA_MAN_ARU[[3]] %>% st_transform(crs = 4326), add= TRUE) # as a check
 
 aoi.cded <- rasterToPoints(aoi_raster) # convert to points for join
 aoi.cded.sf <- st_as_sf(as.data.frame(aoi.cded), coords = c("x","y"), crs = 4326) # create spatial layer
@@ -29,72 +45,60 @@ aoi.cded.utm <- st_transform(aoi.cded.sf, crs = 26910) # convert to utm for join
 
 # load covariates from bcdata
 # using the bc data warehouse option to clip to aoi
+aoi <- aoi %>% st_transform(3005)
+
+# biogeoclimatic zones
+# bcdc_search("Biogeoclimatic zone", res_format = "wms")
+# 3: BEC Map (other, wms, kml)
+# ID: f358a53b-ffde-4830-a325-a5a03ff672c3
+# Name: bec-map
+aoi.BEC <- retrieve_geodata_aoi(ID = "f358a53b-ffde-4830-a325-a5a03ff672c3")
+
+# ggplot()+
+#   geom_sf(data=aoi.BEC)
+# st_write(aoi.BEC, paste0(GISDir,"/LIDAR_BEC.shp"), delete_layer = TRUE)
 
 # watercourses layer
 # bcdc_search("NTS BC River", res_format = "wms")
-aoi.RLW <- bcdc_query_geodata("450d4230-c552-4b61-add9-43ff2f870f59") %>%  #NTS  River, Lake and Wetland
-  filter(INTERSECTS(aoi)) %>%
-  collect()
-aoi.RLW <- aoi.RLW %>% st_intersection(aoi)
+aoi.RLW <- retrieve_geodata_aoi(ID = "414be2d6-f4d9-4f32-b960-caa074c6d36b") 
 
 # FWA_WATERSHED_GROUPS Freshwater Atlas Watershed Boundaries
 # bcdc_search("freshwater", res_format = "wms")
-aoi.FWA <- bcdc_query_geodata("ab758580-809d-4e11-bb2c-df02ac5465c9") %>%  #FWA_WATERSHED_GROUPS
-  filter(INTERSECTS(aoi)) %>%
-  collect()
-glimpse(aoi.FWA)
+aoi.FWA <- retrieve_geodata_aoi(ID = "ab758580-809d-4e11-bb2c-df02ac5465c9")
 
 # transportation layer (Digital Road Atlas)
 # bcdc_search("road", res_format = "wms")
-aoi.DRA <- bcdc_query_geodata("bb060417-b6e6-4548-b837-f9060d94743e") %>%  
-  filter(INTERSECTS(aoi)) %>%
-  collect()
-aoi.DRA <- aoi.DRA %>% st_intersection(aoi)
+aoi.DRA <- retrieve_geodata_aoi(ID = "bb060417-b6e6-4548-b837-f9060d94743e")
 
 # transportation layer (Digital Road Atlas)
 bcdc_search("train", res_format = "wms")
-aoi.train <- bcdc_query_geodata("4ff93cda-9f58-4055-a372-98c22d04a9f8") %>%  
-  filter(INTERSECTS(aoi)) %>%
-  collect()
-aoi.train <- aoi.train %>% st_intersection(aoi)
+aoi.train <- retrieve_geodata_aoi(ID = "4ff93cda-9f58-4055-a372-98c22d04a9f8")
+# no trains in study area
 
 # approved WHAs & UWRs (GAR Orders)
 # bcdc_search("WHA", res_format = "wms")
-aoi.WHA <- bcdc_query_geodata("b19ff409-ef71-4476-924e-b3bcf26a0127") %>%  
-  filter(INTERSECTS(aoi)) %>%
-  collect()
+aoi.WHA <- retrieve_geodata_aoi(ID = "b19ff409-ef71-4476-924e-b3bcf26a0127")
 
 # bcdc_search("UWR", res_format = "wms")
-aoi.UWR <- bcdc_query_geodata("712bd887-7763-4ed3-be46-cdaca5640cc1") %>%  
-  filter(INTERSECTS(aoi)) %>%
-  collect()
+aoi.UWR <- retrieve_geodata_aoi(ID = "712bd887-7763-4ed3-be46-cdaca5640cc1")
 
 # vegetation data (VRI)
 # bcdc_search("VRI", res_format = "wms")
-aoi.VRI <- bcdc_query_geodata("2ebb35d8-c82f-4a17-9c96-612ac3532d55") %>%  
-  filter(INTERSECTS(aoi)) %>%
-  collect()
-
-# plot as check
-# glimpse(aoi_raster$elevation)
-# ggplot(aoi_raster, aes(extent, y)) +
-#   geom_raster(aes(fill = elevation))
+aoi.VRI <- retrieve_geodata_aoi(ID = "2ebb35d8-c82f-4a17-9c96-612ac3532d55")
 
 
 ggplot()+
   geom_sf(data=aoi.WHA, aes(fill=COMMON_SPECIES_NAME), color=NA)+  # use color=NA to remove border lines
   geom_sf(data = aoi_utm, lwd=2, col="red", fill=NA)+
   geom_sf(data=aoi.RLW, lwd=1, col="blue") +
-  geom_sf(data=aoi.DRA[aoi.DRA$ROAD_NAME_FULL=="Trans-Canada Hwy",], lwd=1, col="brown") +
   geom_sf(data=aoi.DRA, lwd=0.8, col="gray") +
-  geom_sf(data=aoi.train, lwd=0.8, col="black") +
   geom_sf(data=sa_points) 
 
 aoi.VRI %>% filter(!is.na(PROJ_HEIGHT_1)) %>%  
   summarise(mean = mean(PROJ_HEIGHT_1), min = min(PROJ_HEIGHT_1), max=max(PROJ_HEIGHT_1), sd = sd(PROJ_HEIGHT_1))
-#  mean = 22.8, min =  0.1, max = 54.1, sd  = 8.89 # Anderson
+#  mean = 22.8, min = 0.1, max = 54.1, sd  = 8.89 # Anderson
 #  mean = 25.5, min = 0.2, max = 63.5, sd = 13.2 # Skwawka
-
+#  mean = 30.1, min = 0.2, max = 56.6  sd = 8.63 # Skagit - Manning
 aoi.VRI$PROJ_HEIGHT_1_cat <- as.factor(ifelse(aoi.VRI$PROJ_HEIGHT_1 < 10, "H0-10",
                                       ifelse(aoi.VRI$PROJ_HEIGHT_1 < 20, "H10-20",
                                              ifelse(aoi.VRI$PROJ_HEIGHT_1 < 30, "H20-30",
@@ -115,8 +119,7 @@ ggplot()+
   geom_sf(data = sa.VRI, aes(fill=PROJ_HEIGHT_1_cat, col=NA)) +
   scale_fill_brewer(palette="Greens") +
   scale_color_brewer(palette="Greens") +
-  geom_sf(data = aoi_utm %>% filter(OBJECTID==3), lwd=2, col="red", fill=NA) +
-  geom_sf(data = aoi_utm %>% filter(OBJECTID!=3), lwd=2, col="blue", fill=NA) +
+  geom_sf(data = aoi_utm, lwd=2, col="red", fill=NA) +
   theme(legend.title=element_blank())
 
 proj_hgt_area <- as.data.frame(sa.VRI %>% group_by(PROJ_HEIGHT_1_cat) %>% 
@@ -142,15 +145,14 @@ sa_smpl_lcns <- as.data.frame(st_coordinates(sa_points))
 # retain points >100 m from large lakes, rivers, and roads
 
 #- watercourses
-aoi.RLW %>% count(FCODE)
-# sa.wtrcrs <- aoi.wtrcrs %>% st_intersection(aoi %>% filter(OBJECTID==3)) %>% st_transform(crs=26910)
+aoi.RLW %>% count(FEATURE_CODE)
 sa.wtrcrs <- aoi.RLW %>% st_intersection(aoi) %>% st_transform(crs=26910)
 # no wtrcrs at 5M scale in two smaller cells
 sa.wtrcrs.dist <- st_nn(sa_points, sa.wtrcrs, k=1, returnDist = T)
 
 sa_smpl_lcns$wtr_dist <- unlist(sa.wtrcrs.dist$dist)
 sa_smpl_lcns$wtr_type <- unlist(sa.wtrcrs.dist$nn)
-sa_smpl_lcns$wtr_type <- sa.wtrcrs$FCODE[match(sa_smpl_lcns$wtr_type,rownames(sa.wtrcrs))]
+sa_smpl_lcns$wtr_type <- sa.wtrcrs$DESCRIPTION[match(sa_smpl_lcns$wtr_type,rownames(sa.wtrcrs))]
 
 # sa_smpl_lcns$wtr_use <- as.factor(ifelse(sa_smpl_lcns$wtr_dist>100,"yes","no"))
   
@@ -168,12 +170,12 @@ summary(as.factor(sa_smpl_lcns$road_type))
 #                                              TRUE ~ "yes"))
 
 # distance to Trans Canada
-sa.HWY.dist <- st_nn(sa_points, sa.DRA %>% filter(HIGHWAY_ROUTE_NUMBER==1), k=1, returnDist = T)
-sa_smpl_lcns$HWY_dist <- unlist(sa.HWY.dist$dist)
+# sa.HWY.dist <- st_nn(sa_points, sa.DRA %>% filter(HIGHWAY_ROUTE_NUMBER==1), k=1, returnDist = T)
+# sa_smpl_lcns$HWY_dist <- unlist(sa.HWY.dist$dist)
 
 # distance to train
-sa.train.dist <- st_nn(sa_points, aoi.train %>% st_transform(crs=26910), k=1, returnDist = T)
-sa_smpl_lcns$train_dist <- unlist(sa.train.dist$dist)
+# sa.train.dist <- st_nn(sa_points, aoi.train %>% st_transform(crs=26910), k=1, returnDist = T)
+# sa_smpl_lcns$train_dist <- unlist(sa.train.dist$dist)
 
 
 #- FWA
@@ -190,14 +192,15 @@ sa.WHA.dist <- st_nn(sa_points, aoi.WHA %>% st_transform(crs=26910), k=1, return
 sa_smpl_lcns$WHA_dist <- unlist(sa.WHA.dist$dist) 
 
 # sampling location distance to UWRs
-sa.UWR.dist <- st_nn(sa_points, aoi.UWR %>% st_transform(crs=26910), k=1, returnDist = T)
-sa_smpl_lcns$UWR_dist <- unlist(sa.UWR.dist$dist) 
+# sa.UWR.dist <- st_nn(sa_smpl_lcns, aoi.UWR %>% st_transform(crs=26910), k=1, returnDist = T)
+# sa_smpl_lcns$UWR_dist <- unlist(sa.UWR.dist$dist) 
 
 #- Elevation
-sa.elev.dist <- st_nn(sa_points, aoi.cded.utm, k=1, returnDist = T)
-sa_smpl_lcns$elev <- unlist(sa.elev.dist$nn)
-sa_smpl_lcns$elev <- aoi.cded.utm$elevation[match(sa_smpl_lcns$elev,rownames(aoi.cded.utm))]
-summary(sa_smpl_lcns$elev)
+# sa.elev.dist <- st_nn(aoi_grid, aoi.cded.utm, k=1, returnDist = T)
+# sa.elev.dist <- st_nn(sa_points, aoi.cded.utm, k=1, returnDist = T)
+# sa_smpl_lcns$elev <- unlist(sa.elev.dist$nn)
+# sa_smpl_lcns$elev <- aoi.cded.utm$elevation[match(sa_smpl_lcns$elev,rownames(aoi.cded.utm))]
+# summary(sa_smpl_lcns$elev)
 
 # exclude points with too steep slope (are we going to aim for this?)
 # random stratify remaining based on VRI veg height data
@@ -227,14 +230,16 @@ sa_smpl_lcns$veg_age <- sa.VRI$PROJ_AGE_1[match(sa_smpl_lcns$veg_age,rownames(sa
 # ###--- sampling locations available to use
 names(sa_smpl_lcns)
 head(sa_smpl_lcns)
-sa_smpl_lcns$locations <- as.factor(ifelse(sa_smpl_lcns$WHA_dist < 1 &
-                                             sa_smpl_lcns$veg_age > 30 &
-                                             #sa_smpl_lcns$wtr_dist > 100 &
-                                             #between(sa_smpl_lcns$road_dist, 100, 2500) &
-                                             sa_smpl_lcns$train_dist > 1000 &
-                                             sa_smpl_lcns$HWY_dist > 1000, "available","exclude"))
+sa_smpl_lcns$locations <- as.factor(ifelse(#sa_smpl_lcns$WHA_dist < 1 &
+                                             sa_smpl_lcns$veg_height > 25 &
+                                             sa_smpl_lcns$wtr_dist > 100 &
+                                             # sa_smpl_lcns$train_dist > 1000 &
+                                             # sa_smpl_lcns$HWY_dist > 1000, 
+                                             between(sa_smpl_lcns$road_dist, 100, 2500),
+                                               "available","exclude"))
 
 sa_smpl_lcns %>% count(locations) # 154 possible locations within the 3 study areas
+# 89 available and 76 excluded
 
 sa_smpl_lcns$priority <- as.factor(ifelse(sa_smpl_lcns$locations=="available" &
                                              sa_smpl_lcns$wtr_dist > 100 &
@@ -268,11 +273,11 @@ ggplot()+
   geom_sf(data = aoi_utm, lwd=2, col="blue", fill=NA) +
     theme(legend.title=element_blank())
 # ggsave("Skwawka_options_grid.png",plot=last_plot(), dpi=300)
-ggsave("Owl_options_grid.png",plot=last_plot(), dpi=300)
+ggsave("Skagit_ALL_options_grid.png",plot=last_plot(), dpi=300)
 
 
 # export shapefile
-st_write(sa_smpl_lcns.sf, paste0(getwd(),"/out/Owl_smpln_opts.shp"), delete_layer = TRUE)
+st_write(sa_smpl_lcns.sf, paste0(getwd(),"/out/SKA_MAN_smpln_opts.shp"), delete_layer = TRUE)
 
 # plot to check
 ggplot()+
@@ -287,10 +292,16 @@ ggplot()+
 # ggsave("Anderson_ARU_options.png",plot=last_plot(), dpi=300)
 ggsave("Owl_ARU_priority.png",plot=last_plot(), dpi=300)
 
-st_write(sa_smpl_lcns.sf %>% st_transform(crs=4326), "lcns.kml", driver = "kml", delete_dsn = TRUE)
+st_write(sa_smpl_lcns.sf  %>% st_transform(crs=4326), "lcns.kml", driver = "kml", delete_dsn = TRUE)
 
+avail <- sa_smpl_lcns.sf %>% filter(locations=="available")
+st_write(avail  %>% st_transform(crs=4326), "avail.kml", driver = "kml", delete_dsn = TRUE)
+
+
+sa_smpl_lcns.sf <- st_read(dsn="./out", layer="Owl_smpln_opts")
 #####################################################################################
 ###--- view OSM data and download appropriate section for study area
+# aoi <- EPU_poly %>% filter(EPU_Unit_N =="Sechelt Peninsula")
 aoi_latlon <- st_transform(aoi, crs=4326)
 st_bbox(aoi_latlon)
 
@@ -304,6 +315,27 @@ map <- openmap(c(LAT2,LON1), c(LAT1,LON2), zoom = NULL,
 
 ## OSM CRS :: "+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +no_defs"
 map.latlon <- openproj(map, projection = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+
+###--- for elk camera project
+smpl_plot_2021 <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+  labs(title = "Potential Sampling Locations - 2021",x = "Longitude", y="Latitude")+
+  geom_point(data=smp_elk, 
+             aes(x=Longitude, y=Latitude, fill=Options), size=3, shape=21)+
+  # geom_point(data=AARU[AARU$options=="available",],
+  #            aes(x=Longitude, y=Latitude), size=4, shape=21, fill="blue") +
+  theme(legend.position = "bottom")
+smpl_plot_2021
+
+Cairo(file="out/elk_smp_lcn_2021.PNG",
+      type="png",
+      width=3000,
+      height=2200,
+      pointsize=15,
+      bg="white",
+      dpi=300)
+smpl_plot_2021
+dev.off()
+
 
 ## create point data
 #- smaller polygons
@@ -343,3 +375,33 @@ ggplot()+
   geom_sf(data=sa.wtrcrs, lwd=1.5, col="blue") +
   geom_sf(data=sa.DRA %>% filter(FEATURE_TYPE=="Road"), lwd=0.8, col="brown") +
   theme(legend.position = "none")
+
+glimpse(sa_smpl_lcns.sf)
+ggplot()+
+  geom_sf(data = sa_smpl_lcns.sf %>% filter(priority=="1"), col="red") +
+  geom_sf(data = sa_smpl_lcns.sf %>% filter(priority=="2"), col="blue") +
+  #geom_sf(data = sa_smpl_lcns.sf %>% filter(priority=="3"), col="black") +
+  theme(legend.position = "none")
+
+
+# #- Anderson polygon
+actual_lcn <- read.csv("data/2021_Deployment_schedule_Jul21bc.csv")
+head(actual_lcn)
+names(actual_lcn)
+actual_lcn.sf <- st_as_sf(actual_lcn, coords = c("Utm.e","Untm.n"), crs = 26910) # create spatial layer
+ggplot()+
+  geom_sf(data = actual_lcn.sf)
+
+
+st_write(actual_lcn.sf %>% st_transform(crs=4326), "out/actual_lcns.kml", driver = "kml", delete_dsn = TRUE)
+st_write(actual_lcn.sf, paste0(getwd(),"/out/Owl_actual_lcns.shp"), delete_layer = TRUE)
+# st_write(aoi_grid, paste0(getwd(),"/out/Owl_smpln_grid.shp"), delete_layer = TRUE)
+
+actual_lcn.dist <- st_nn(actual_lcn.sf, actual_lcn.sf, k=2, returnDist = T)
+actual_lcn.dist <- unlist(actual_lcn.dist[2])
+head(actual_lcn.dist)
+actual_lcn.dist <- actual_lcn.dist[actual_lcn.dist > 0]
+length(actual_lcn.dist)
+min(actual_lcn.dist); mean(actual_lcn.dist); max(actual_lcn.dist) # 94 m; 657 m; 2400 m
+sd(actual_lcn.dist)/sqrt(length(actual_lcn.dist)) # SE = 29 m
+
