@@ -234,14 +234,11 @@ sa_smpl_lcns %>% count(locations) # 154 possible locations within the 3 study ar
 nrow(sa_smpl_lcns)
 # 67 available and 98 excluded
 
-# sa_smpl_lcns$priority <- as.factor(ifelse(sa_smpl_lcns$locations=="available" &
-#                                              sa_smpl_lcns$wtr_dist > 100 &
-#                                              between(sa_smpl_lcns$road_dist, 100, 2500) &
-#                                              sa_smpl_lcns$train_dist > 2000 &
-#                                              sa_smpl_lcns$HWY_dist > 2000, 1,
-#                                           ifelse(sa_smpl_lcns$locations=="exclude",3,2)))
-# 
-# sa_smpl_lcns %>% group_by(priority) %>% count(locations) # 154 possible locations within the 3 study areas
+sa_smpl_lcns$priority <- as.factor(ifelse(sa_smpl_lcns$locations=="available" &
+                                            sa_smpl_lcns$elev < 1000, 1,
+                                          ifelse(sa_smpl_lcns$locations=="exclude",3,2)))
+
+sa_smpl_lcns %>% group_by(priority) %>% count(locations) # 154 possible locations within the 3 study areas
 
 ###--- create sf object from sampling location data frame
 sa_smpl_lcns.sf <- st_as_sf(sa_smpl_lcns, coords = c("X","Y"), crs = 26910)
@@ -252,21 +249,21 @@ sa_smpl_lcns.sf <- st_intersection(sa_smpl_lcns.sf, aoi_utm)
 sa_smpl_lcns.sf %>% count(locations) # 110 available sampling locations, 83 excluded based on proximity to roads/river and WHA occurrence
 sa_smpl_lcns.sf %>% filter(locations=="available") %>% summarise(min(veg_height), mean(veg_height), max(veg_height))
 
-sa_smpl_lcns.sf %>% filter(locations=="available") %>% count(OBJECTID)
-sa_smpl_lcns.sf  %>% filter(locations=="available")%>% group_by(OBJECTID) %>% count(Nmae)
-sa_smpl_lcns.sf  %>% group_by(priority) %>% count(OBJECTID) # where 1 = Uzltius, 2 = Spuzzum and 3 = Anderson
+# sa_smpl_lcns.sf %>% filter(locations=="available") %>% count(OBJECTID)
+# sa_smpl_lcns.sf  %>% filter(locations=="available")%>% group_by(OBJECTID) %>% count(Nmae)
+# sa_smpl_lcns.sf  %>% group_by(priority) %>% count(OBJECTID) # where 1 = Uzltius, 2 = Spuzzum and 3 = Anderson
 
 # plot to check - clipped the appropriate area
 ggplot()+
   geom_sf(data = sa.VRI, aes(fill=PROJ_HEIGHT_1_cat, col=NA)) +# use color=NA to remove border lines
   scale_fill_brewer(palette="Greens") +
   scale_color_brewer(palette="Greens") +
-  geom_sf(data = sa_smpl_lcns.sf ,size = 2, shape = 23, fill = "darkred") +
-  # geom_sf(data = sa_smpl_lcns.sf %>% filter(locations=="available") ,size = 2, shape = 23, fill = "darkred") +
+  # geom_sf(data = sa_smpl_lcns.sf ,size = 2, shape = 23, fill = "darkred") +
+  geom_sf(data = sa_smpl_lcns.sf %>% filter(priority=="1") ,size = 2, shape = 23, fill = "darkred") +
   geom_sf(data = aoi, size=2, col="blue", fill=NA)+
   geom_sf(data = aoi_utm, lwd=0.5, col="gray", fill=NA) +
     theme(legend.title=element_blank())
-# ggsave("Skwawka_options_grid.png",plot=last_plot(), dpi=300)
+# ggsave("out/Skagit_priority_grid.png",plot=last_plot(), dpi=300)
 ggsave("Skagit_ALL_options_grid.png",plot=last_plot(), dpi=300)
 
 
@@ -288,14 +285,20 @@ ggsave("Owl_ARU_priority.png",plot=last_plot(), dpi=300)
 
 st_write(sa_smpl_lcns.sf  %>% st_transform(crs=4326), "lcns.kml", driver = "kml", delete_dsn = TRUE)
 
-avail <- sa_smpl_lcns.sf %>% filter(locations=="available")
+avail <- sa_smpl_lcns.sf %>% filter(locations=="available")%>% st_transform(crs=4326)
 st_write(avail  %>% st_transform(crs=4326), "avail.kml", driver = "kml", delete_dsn = TRUE)
+
+st_write(avail %>% dplyr::select(NAME = priority), "out/SKA_priority.kml", driver = "kml", delete_dsn = TRUE)
+st_write(smp_elk %>% filter(Options!="truck") %>% st_transform(crs=4326) %>% select(NAME = Name), "data/elk_aerial_atv_sites.kml", driver = "kml", delete_dsn = TRUE)
 
 
 sa_smpl_lcns.sf <- st_read(dsn="./out", layer="Owl_smpln_opts")
 #####################################################################################
 ###--- view OSM data and download appropriate section for study area
-# aoi <- EPU_poly %>% filter(EPU_Unit_N =="Sechelt Peninsula")
+#- EPU polygon shapefile
+GISDir <- "//spatialfiles.bcgov/work/wlap/sry/Workarea/jburgar/Elk"
+aoi <- st_read(dsn=GISDir, layer="EPU_Sechelt_Peninsula")
+
 aoi_latlon <- st_transform(aoi, crs=4326)
 st_bbox(aoi_latlon)
 
@@ -311,23 +314,34 @@ map <- openmap(c(LAT2,LON1), c(LAT1,LON2), zoom = NULL,
 map.latlon <- openproj(map, projection = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
 
 ###--- for elk camera project
-smpl_plot_2021 <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
-  labs(title = "Potential Sampling Locations - 2021",x = "Longitude", y="Latitude")+
-  geom_point(data=smp_elk, 
-             aes(x=Longitude, y=Latitude, fill=Options), size=3, shape=21)+
-  # geom_point(data=AARU[AARU$options=="available",],
-  #            aes(x=Longitude, y=Latitude), size=4, shape=21, fill="blue") +
-  theme(legend.position = "bottom")
-smpl_plot_2021
+# smpl_plot_2021 <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+#   labs(title = "Potential Sampling Locations - 2021",x = "Longitude", y="Latitude")+
+#   geom_point(data=smp_elk, 
+#              aes(x=Longitude, y=Latitude, fill=Options), size=3, shape=21)+
+#   # geom_point(data=AARU[AARU$options=="available",],
+#   #            aes(x=Longitude, y=Latitude), size=4, shape=21, fill="blue") +
+#   theme(legend.position = "bottom")
+# smpl_plot_2021
 
-Cairo(file="out/elk_smp_lcn_2021.PNG",
+camlocn <- read.csv("C:/Users/JBURGAR/R/Analysis/Elk_sightability/data/camera_actual_location_SP.csv", header=TRUE)
+camlocn.sf <- st_as_sf(camlocn, coords = c("Longitude","Latitude"), crs = 4326) # create spatial layer
+
+camlocn_plot_2021 <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+  labs(title = "Camera Locations - 2021",x = "Longitude", y="Latitude")+
+  geom_point(data=camlocn,
+             aes(x=Longitude, y=Latitude, fill=Deploy_Type), size=3, shape=21)+
+  theme(legend.position = "bottom", legend.title = element_blank())
+camlocn_plot_2021
+
+
+Cairo(file="C:/Users/JBURGAR/R/Analysis/Elk_sightability/out/elk_camlocn_plot_2021_low.PNG",
       type="png",
-      width=3000,
-      height=2200,
-      pointsize=15,
+      width=1600,
+      height=1200,
+      pointsize=10,
       bg="white",
-      dpi=300)
-smpl_plot_2021
+      dpi=200)
+camlocn_plot_2021
 dev.off()
 
 
