@@ -56,20 +56,24 @@ create_study_grid <- function (dsn=dsn, layer=layer, cellsize=cellsize, output=o
 ###--- Area of Interest (AOI) is larger than Study Area
 # keep in mind that WGS84 lat/long espg = 4326; BC Albers espg = 3005; NAD83 / UTM zone 10N espg = 26910 
 
-cellsize <- 1000 # owls
-cellsize <- 2000 # elk
+# cellsize <- 1000 # owls
+# cellsize <- 2000 # elk
 
 
 SKA_MAN_ARU <- create_study_grid(dsn= "./data", layer = "Skagis_Manning_ARU_Release_Area_IanVersion", 
                                  cellsize = 1000, output = "SKA_MAN_ARU")
 
+# 150 m cell size because cameras should be placed ~146 m apart (see 00_SC_Informed_Sigma.R for calculation)
+# basically 1 coyote per 10 ha assumed density
+SP_cam <- create_study_grid(dsn= getwd(), layer = "StanleyPark_albers", 
+                                 cellsize = 150, output = "SP_cam")
+
 
 # plot as check
 ggplot()+
-  geom_sf(data = SKA_MAN_ARU[[2]] %>% st_intersection(SKA_MAN_ARU[[1]])) +
-  geom_sf(data = SKA_MAN_ARU[[3]]) +
-  geom_sf(data = SKA_MAN_ARU[[1]], lwd=2, col="red", fill=NA)
+  geom_sf(data = SP_cam[[2]] %>% st_intersection(SP_cam[[1]])) +
+  geom_sf(data = SP_cam[[3]]) +
+  geom_sf(data = SP_cam[[1]], lwd=2, col="red", fill=NA)
 
 # now have spatial grid, spatial points and study area boundary objects
 # can proceed to Task 2 - load covariates and join to spatial points
-  
