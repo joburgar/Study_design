@@ -30,15 +30,15 @@ retrieve_geodata_aoi <- function (ID=ID){
 
 #####################################################################################
 
-aoi <- SKA_MAN_ARU[[1]] %>% st_transform(crs = 3005)
-aoi_utm <- SKA_MAN_ARU[[2]] %>% st_intersection(aoi %>% st_transform(26910))
-sa_points <- SKA_MAN_ARU[[3]]
+aoi <- SP_cam[[1]] %>% st_transform(crs = 3005)
+aoi_utm <- SP_cam[[2]] %>% st_intersection(aoi %>% st_transform(26910))
+sa_points <- SP_cam[[3]]
 
 # load covariates from bcmaps
 # digital elevation raster
 aoi_raster <- cded_raster(aoi) 
 plot(aoi_raster)
-plot(SKA_MAN_ARU[[3]] %>% st_transform(crs = 4326), add= TRUE) # as a check
+plot(SP_cam[[3]] %>% st_transform(crs = 4326), add= TRUE) # as a check
 
 aoi.cded <- rasterToPoints(aoi_raster) # convert to points for join
 aoi.cded.sf <- st_as_sf(as.data.frame(aoi.cded), coords = c("x","y"), crs = 4326) # create spatial layer
@@ -219,20 +219,112 @@ sa_smpl_lcns$veg_age <- unlist(sa.VRI.dist$nn)
 sa_smpl_lcns$veg_age <- sa.VRI$PROJ_AGE_1[match(sa_smpl_lcns$veg_age,rownames(sa.VRI))]
 
 
+# # ###--- sampling locations available to use
+# names(sa_smpl_lcns)
+# sa_smpl_lcns %>% count(veg_dist)
+# sa_smpl_lcns$locations <- as.factor(ifelse(#sa_smpl_lcns$WHA_dist < 1 &
+#   sa_smpl_lcns$veg_dist==0 & sa_smpl_lcns$veg_height > 25 &
+#     sa_smpl_lcns$wtr_dist > 100 & 
+#     # sa_smpl_lcns$train_dist > 1000 &
+#     # sa_smpl_lcns$HWY_dist > 1000, 
+#     sa_smpl_lcns$elev < 1200 &
+#     between(sa_smpl_lcns$road_dist, 100, 2500), "available","exclude"))
+# 
+# sa_smpl_lcns %>% count(locations) # 154 possible locations within the 3 study areas
+# nrow(sa_smpl_lcns)
+# # 67 available and 98 excluded
+# 
+# sa_smpl_lcns$priority <- as.factor(ifelse(sa_smpl_lcns$locations=="available" &
+#                                             sa_smpl_lcns$elev < 1000, 1,
+#                                           ifelse(sa_smpl_lcns$locations=="exclude",3,2)))
+# 
+# sa_smpl_lcns %>% group_by(priority) %>% count(locations) # 154 possible locations within the 3 study areas
+# 
+# ###--- create sf object from sampling location data frame
+# sa_smpl_lcns.sf <- st_as_sf(sa_smpl_lcns, coords = c("X","Y"), crs = 26910)
+# sa_smpl_lcns.sf <- st_intersection(sa_smpl_lcns.sf, aoi_utm)
+# # sa_smpl_lcns.sf <- st_intersection(sa_smpl_lcns.sf, aoi_utm) #%>% select(-Nmae, -SHAPE_Leng, -SHAPE_Area)
+# 
+# 
+# sa_smpl_lcns.sf %>% count(locations) # 110 available sampling locations, 83 excluded based on proximity to roads/river and WHA occurrence
+# sa_smpl_lcns.sf %>% filter(locations=="available") %>% summarise(min(veg_height), mean(veg_height), max(veg_height))
+# 
+# # sa_smpl_lcns.sf %>% filter(locations=="available") %>% count(OBJECTID)
+# # sa_smpl_lcns.sf  %>% filter(locations=="available")%>% group_by(OBJECTID) %>% count(Nmae)
+# # sa_smpl_lcns.sf  %>% group_by(priority) %>% count(OBJECTID) # where 1 = Uzltius, 2 = Spuzzum and 3 = Anderson
+# 
+# # plot to check - clipped the appropriate area
+# ggplot()+
+#   geom_sf(data = sa.VRI, aes(fill=PROJ_HEIGHT_1_cat, col=NA)) +# use color=NA to remove border lines
+#   scale_fill_brewer(palette="Greens") +
+#   scale_color_brewer(palette="Greens") +
+#   # geom_sf(data = sa_smpl_lcns.sf ,size = 2, shape = 23, fill = "darkred") +
+#   geom_sf(data = sa_smpl_lcns.sf %>% filter(priority=="1") ,size = 2, shape = 23, fill = "darkred") +
+#   geom_sf(data = aoi, size=2, col="blue", fill=NA)+
+#   geom_sf(data = aoi_utm, lwd=0.5, col="gray", fill=NA) +
+#     theme(legend.title=element_blank())
+# # ggsave("out/Skagit_priority_grid.png",plot=last_plot(), dpi=300)
+# ggsave("Skagit_ALL_options_grid.png",plot=last_plot(), dpi=300)
+# 
+# 
+# # export shapefile
+# st_write(sa_smpl_lcns.sf, paste0(getwd(),"/out/SKA_MAN_smpln_opts.shp"), delete_layer = TRUE)
+# 
+# # plot to check
+# ggplot()+
+#   geom_sf(data=aoi.WHA %>% st_transform(crs=26910))+  
+#   geom_sf(data = sa_smpl_lcns.sf %>% filter(priority!="priority"), aes(fill=priority, col=priority)) +
+#   # geom_sf(data = sa_smpl_lcns.sf %>% filter(elev>0), col="red") +
+#   geom_sf(data = aoi %>% filter(OBJECTID==3), lwd=2, col="red", fill=NA)+
+#   geom_sf(data = aoi %>% filter(OBJECTID!=3), lwd=2, col="blue", fill=NA)+
+#   geom_sf(data=sa.wtrcrs, lwd=1.5, col="blue") +
+#   geom_sf(data=sa.DRA %>% filter(FEATURE_TYPE=="Road"), lwd=0.5, col="brown") +
+#   theme(legend.position = "none")
+# # ggsave("Anderson_ARU_options.png",plot=last_plot(), dpi=300)
+# ggsave("Owl_ARU_priority.png",plot=last_plot(), dpi=300)
+# 
+# st_write(sa_smpl_lcns.sf  %>% st_transform(crs=4326), "lcns.kml", driver = "kml", delete_dsn = TRUE)
+# 
+# avail <- sa_smpl_lcns.sf %>% filter(locations=="available")%>% st_transform(crs=4326)
+# st_write(avail  %>% st_transform(crs=4326), "avail.kml", driver = "kml", delete_dsn = TRUE)
+# 
+# st_write(avail %>% dplyr::select(NAME = priority), "out/SKA_priority.kml", driver = "kml", delete_dsn = TRUE)
+# st_write(smp_elk %>% filter(Options!="truck") %>% st_transform(crs=4326) %>% select(NAME = Name), "data/elk_aerial_atv_sites.kml", driver = "kml", delete_dsn = TRUE)
+# 
+# 
+# sa_smpl_lcns.sf <- st_read(dsn="./out", layer="Owl_smpln_opts")
+
+###### For Stanley Park Coyote camera project
+
+# get the layers in the kml
+input_file <- 'data/SP_CoyoteAttacks.kml'
+CoyoteAttacks_sf <- read_sf(input_file) %>% st_transform(crs=26910) %>% st_zm(drop=TRUE, what="ZM") # convert to utm for grid size
+
+ggplot()+
+  geom_sf(data=aoi_utm)+
+  geom_sf(data=CoyoteAttacks_sf)
+
+
+# determine distance of sampling locations to attacks
+sa.attack.dist <- st_nn(sa_points, CoyoteAttacks_sf, k=1, returnDist = T)
+sa_smpl_lcns$attack_dist <- unlist(sa.attack.dist$dist) 
+
+
+glimpse(sa_smpl_lcns)
+sa_smpl_lcns %>% group_by(wtr_type) %>% summarise(min=min(wtr_dist), mean=mean(wtr_dist), max=max(wtr_dist))
+sa_smpl_lcns %>% group_by(road_type) %>% summarise(min=min(road_dist), mean=mean(road_dist), max=max(road_dist))
+sa_smpl_lcns %>% group_by(FWA_type) %>% summarise(min=min(FWA_dist), mean=mean(FWA_dist), max=max(FWA_dist))
+sa_smpl_lcns %>% summarise(min=min(attack_dist), mean=mean(attack_dist), max=max(attack_dist))
+
 # ###--- sampling locations available to use
 names(sa_smpl_lcns)
-sa_smpl_lcns %>% count(veg_dist)
-sa_smpl_lcns$locations <- as.factor(ifelse(#sa_smpl_lcns$WHA_dist < 1 &
-  sa_smpl_lcns$veg_dist==0 & sa_smpl_lcns$veg_height > 25 &
-    sa_smpl_lcns$wtr_dist > 100 & 
-    # sa_smpl_lcns$train_dist > 1000 &
-    # sa_smpl_lcns$HWY_dist > 1000, 
-    sa_smpl_lcns$elev < 1200 &
-    between(sa_smpl_lcns$road_dist, 100, 2500), "available","exclude"))
+sa_smpl_lcns$locations <- as.factor(ifelse(sa_smpl_lcns$attack_dist < 500 &
+  sa_smpl_lcns$road_dist < 100 &
+    between(sa_smpl_lcns$wtr_dist, 50, 500), "available","exclude"))
 
 sa_smpl_lcns %>% count(locations) # 154 possible locations within the 3 study areas
 nrow(sa_smpl_lcns)
-# 67 available and 98 excluded
+# 99 available and 70 excluded
 
 sa_smpl_lcns$priority <- as.factor(ifelse(sa_smpl_lcns$locations=="available" &
                                             sa_smpl_lcns$elev < 1000, 1,
@@ -247,52 +339,32 @@ sa_smpl_lcns.sf <- st_intersection(sa_smpl_lcns.sf, aoi_utm)
 
 
 sa_smpl_lcns.sf %>% count(locations) # 110 available sampling locations, 83 excluded based on proximity to roads/river and WHA occurrence
-sa_smpl_lcns.sf %>% filter(locations=="available") %>% summarise(min(veg_height), mean(veg_height), max(veg_height))
-
-# sa_smpl_lcns.sf %>% filter(locations=="available") %>% count(OBJECTID)
-# sa_smpl_lcns.sf  %>% filter(locations=="available")%>% group_by(OBJECTID) %>% count(Nmae)
-# sa_smpl_lcns.sf  %>% group_by(priority) %>% count(OBJECTID) # where 1 = Uzltius, 2 = Spuzzum and 3 = Anderson
-
-# plot to check - clipped the appropriate area
-ggplot()+
-  geom_sf(data = sa.VRI, aes(fill=PROJ_HEIGHT_1_cat, col=NA)) +# use color=NA to remove border lines
-  scale_fill_brewer(palette="Greens") +
-  scale_color_brewer(palette="Greens") +
-  # geom_sf(data = sa_smpl_lcns.sf ,size = 2, shape = 23, fill = "darkred") +
-  geom_sf(data = sa_smpl_lcns.sf %>% filter(priority=="1") ,size = 2, shape = 23, fill = "darkred") +
-  geom_sf(data = aoi, size=2, col="blue", fill=NA)+
-  geom_sf(data = aoi_utm, lwd=0.5, col="gray", fill=NA) +
-    theme(legend.title=element_blank())
-# ggsave("out/Skagit_priority_grid.png",plot=last_plot(), dpi=300)
-ggsave("Skagit_ALL_options_grid.png",plot=last_plot(), dpi=300)
-
 
 # export shapefile
-st_write(sa_smpl_lcns.sf, paste0(getwd(),"/out/SKA_MAN_smpln_opts.shp"), delete_layer = TRUE)
+st_write(sa_smpl_lcns.sf, paste0(getwd(),"/out/SP_smpln_opts.shp"), delete_layer = TRUE)
 
 # plot to check
 ggplot()+
-  geom_sf(data=aoi.WHA %>% st_transform(crs=26910))+  
-  geom_sf(data = sa_smpl_lcns.sf %>% filter(priority!="priority"), aes(fill=priority, col=priority)) +
-  # geom_sf(data = sa_smpl_lcns.sf %>% filter(elev>0), col="red") +
-  geom_sf(data = aoi %>% filter(OBJECTID==3), lwd=2, col="red", fill=NA)+
-  geom_sf(data = aoi %>% filter(OBJECTID!=3), lwd=2, col="blue", fill=NA)+
-  geom_sf(data=sa.wtrcrs, lwd=1.5, col="blue") +
-  geom_sf(data=sa.DRA %>% filter(FEATURE_TYPE=="Road"), lwd=0.5, col="brown") +
-  theme(legend.position = "none")
-# ggsave("Anderson_ARU_options.png",plot=last_plot(), dpi=300)
-ggsave("Owl_ARU_priority.png",plot=last_plot(), dpi=300)
+  geom_sf(data=aoi_utm, col="gray", lwd=0.5)+
+  geom_sf(data = aoi, lwd=1, col="black", fill=NA)+
+  geom_sf(data=sa.DRA, aes(fill=FEATURE_TYPE, col=FEATURE_TYPE)) +
+  geom_sf(data=sa.wtrcrs, col="blue", fill="lightblue")+
+  geom_sf(data=CoyoteAttacks_sf, col="darkred")+
+  geom_sf(data = sa_smpl_lcns.sf %>% filter(locations=="available"), col="black", pch=18, cex=2)+
+  ggtitle("Potential Camera Locations \n Stanley Park") 
+ggsave("out/SP_smpl_lcns.png",plot=last_plot(), dpi=300)
 
-st_write(sa_smpl_lcns.sf  %>% st_transform(crs=4326), "lcns.kml", driver = "kml", delete_dsn = TRUE)
 
-avail <- sa_smpl_lcns.sf %>% filter(locations=="available")%>% st_transform(crs=4326)
-st_write(avail  %>% st_transform(crs=4326), "avail.kml", driver = "kml", delete_dsn = TRUE)
-
-st_write(avail %>% dplyr::select(NAME = priority), "out/SKA_priority.kml", driver = "kml", delete_dsn = TRUE)
 st_write(smp_elk %>% filter(Options!="truck") %>% st_transform(crs=4326) %>% select(NAME = Name), "data/elk_aerial_atv_sites.kml", driver = "kml", delete_dsn = TRUE)
+
+st_write(sa_smpl_lcns.sf  %>% st_transform(crs=4326), "SP_lcns.kml", driver = "kml", delete_dsn = TRUE)
+
+
+st_write(sa_smpl_lcns.sf %>% filter(locations=="available"), "out/SP_avail_lcns.kml", driver = "kml", delete_dsn = TRUE)
 
 
 sa_smpl_lcns.sf <- st_read(dsn="./out", layer="Owl_smpln_opts")
+
 #####################################################################################
 ###--- view OSM data and download appropriate section for study area
 #- EPU polygon shapefile
@@ -328,7 +400,7 @@ camlocn.sf <- st_as_sf(camlocn, coords = c("Longitude","Latitude"), crs = 4326) 
 
 camlocn_plot_2021 <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
   labs(title = "Camera Locations - 2021",x = "Longitude", y="Latitude")+
-  geom_point(data=camlocn,
+  geom_point(data=sa_smpl_lcns,
              aes(x=Longitude, y=Latitude, fill=Deploy_Type), size=3, shape=21)+
   theme(legend.position = "bottom", legend.title = element_blank())
 camlocn_plot_2021
