@@ -1,0 +1,209 @@
+#####################################################################################
+# 02b_stn_selection.R
+# script to join remaining covariates and stratify site selection
+# created for EC_MMP project, focus on Manning Park and Skagit areas, expanding outwards
+# written by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - 3-July-2025
+#####################################################################################
+R_version <- paste0("R-",version$major,".",version$minor)
+.libPaths(paste0("C:/Program Files/R/",R_version,"/library")) # to ensure reading/writing libraries from C drive
+
+# Load Packages
+list.of.packages <- c("tidyverse","sf","terra")
+
+# Check you have them and load them
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+lapply(list.of.packages, require, character.only = TRUE)
+#####################################################################################
+
+# 1. Read vector data
+GIS_Dir <- "//sfp.idir.bcgov/S140/S40203/Ecosystems/Conservation Science/Species/Mesocarnivores/Projects/MMP/2.Data/Camera_ARU_Deployments/Ecological_Corridors/"
+EC_MMP_Fquad <- st_read(dsn = GIS_Dir, layer = "BC_meso_Fquad_EC")
+
+# 2. Load raster
+raster_fDir <- "//sfp.idir.bcgov/S140/S40203/Ecosystems/Conservation Science/Species/Mesocarnivores/GIS_Sharespace/Elevation/"
+BC_elev <- rast(file.path(raster_fDir, "elevation_BC_clip.tif"))
+
+# 3. Calculate centroid (or use st_point_on_surface for guaranteed in-polygon points)
+centroids <- st_point_on_surface(EC_MMP_Fquad)
+
+# 4. Transform centroids to raster CRS (this is critical!)
+centroids <- st_transform(centroids, crs(BC_elev))
+
+# 5. Convert to terra format and extract
+centroids_vect <- vect(centroids)
+elev_vals <- extract(BC_elev, centroids_vect)
+
+# 6. Join elevation values back (removing the ID column from extract)
+centroids$elevation <- elev_vals[, 2]  # 2nd column = raster value
+
+# 7. Optional: Join elevation to original polygons (by row index)
+EC_MMP_Fquad$elevation <- centroids$elevation
+
+################################################################################
+## For site selection for on-site protocol
+# need to be at least 1 km apart - doable if 1 per grid cell (36 km2)
+# could also go with 3-4 cameras per grid cell and it would still fit within CCMP methods
+# pick 
+
+
+ggplot(data = EC_MMP_Fquad %>% filter(CCMP_prior != "CCMP_OOS")) +
+  geom_sf(aes(fill = CCMP_prior)) +
+  scale_fill_viridis_d(option = "plasma", na.value = "grey80") +  # <- discrete scale
+  theme_minimal() +
+  labs(title = "CCMP Prior by Fquad", fill = "CCMP Prior")
+
+
+hist(EC_MMP_Fquad$elevation[EC_MMP_Fquad$CCMP_prior != "CCMP_OOS"])
+
+###################################
+centroids <- st_centroid(EC_MMP_Fquad)
+
+# Step 2: Transform centroids to lat/lon (EPSG:4326)
+centroids_latlon <- st_transform(centroids, crs = 4326)
+
+# Step 3: Extract latitudes
+latitudes <- st_coordinates(centroids_latlon)[, 2]
+
+# Step 4: Filter the original object by these latitudes
+sf_filtered <- EC_MMP_Fquad[latitudes < 49.3795, ]
+
+# 4. Add logical column to original sf_object
+EC_MMP_Fquad <- EC_MMP_Fquad %>%
+  mutate(use_cell = Y_centroid < 548189) # about as far north as Boston Bar
+
+# Step 5: Plot
+ggplot() +
+  geom_sf(data = EC_MMP_Fquad, aes(fill = use_cell), color = "black") +
+  scale_fill_manual(values = c("FALSE" = "white", "TRUE" = "skyblue")) +
+  labs(title = "Grid Cells Flagged for Use (Below 49.3795° N)") +
+  theme_minimal()
+
+EC_MMP_Fquad %>% filter(use_cell==TRUE) %>% group_by(ECpoly) %>% count(CCMP_prior) %>% st_drop_geometry()
+
+# Plot, colored by CCMP_prior, below ~ Boston Bar, only in NCFP and with paved roads
+ggplot() +
+  geom_sf(data = EC_MMP_Fquad %>% filter(use_cell==TRUE) %>% filter(ECpoly=="NCFP") %>% filter(Paved_Dnst>0), 
+          aes(fill = CCMP_prior), color = "black") +
+  scale_fill_viridis_d(name = "CCMP Priority", option = "D") +
+  labs(title = "Grid Cells by CCMP Priority - paved road") +
+  theme_minimal()
+
+ggplot() +
+  geom_sf(data = EC_MMP_Fquad %>% filter(use_cell==TRUE) %>% filter(ECpoly=="NCFP") %>% filter(Unpvd_Dnst>0), 
+          aes(fill = CCMP_prior), color = "black") +
+  scale_fill_viridis_d(name = "CCMP Priority", option = "D") +
+  labs(title = "Grid Cells by CCMP Priority - unpaved road") +
+  theme_minimal()
+
+
+####################################################
+### PILOT STUDY DESIGN
+# Part of the NCFP ecological cooridor polygon
+# Below ~49.8 degrees N (548189 as the Y centroid in Albers)
+# With a paved road in the 36 km2 cell
+# yields 138 potential sites
+
+EC_MMP_Fquad %>% filter(use_cell==TRUE) %>% filter(ECpoly=="NCFP") %>% filter(Paved_Dnst>0)
+
+EC_MMP_pot <- EC_MMP_Fquad %>% filter(use_cell==TRUE) %>% filter(ECpoly=="NCFP") %>% filter(Paved_Dnst>0)
+hist(EC_MMP_pot$elevation)
+
+# Create a ranking for sites
+# needs to have a park trail (30 cells) and unpaved roads (128 cells)
+# need to rank so that all park trails are included
+# rank by bins of road density (paved and unpaved)
+# rank by bins of grizzly bear habitat
+# rank by elevation bins (>1000 m for CCMP)
+EC_MMP_pot %>% count(ParkTrail)
+EC_MMP_pot %>% count(Unpvd_Dnst>0)
+hist(EC_MMP_pot$Unpvd_Dnst)
+hist(EC_MMP_pot$Paved_Dnst)
+
+#elevation bins
+EC_MMP_pot <- EC_MMP_pot %>%
+  mutate(elevation_bin = case_when(
+    elevation >= 0    & elevation < 500   ~ "1.0–500",
+    elevation >= 500  & elevation < 1000  ~ "2.500–1000",
+    elevation >= 1000 & elevation < 1500  ~ "3.1000–1500",
+    elevation >= 1500 & elevation <= 2000 ~ "4.1500–2000",
+    TRUE ~ NA_character_  # 
+  ))
+
+ggplot(EC_MMP_pot, aes(x = elevation_bin)) +
+  geom_bar(fill = "steelblue") +
+  labs(x = "Elevation Bin", y = "Count", title = "Elevation Bins") +
+  theme_minimal()
+
+#road density bins
+EC_MMP_pot <- EC_MMP_pot %>%
+  mutate(Paved_Dnst_bin = case_when(
+    Paved_Dnst >= 0    & Paved_Dnst < 0.25   ~ "1.Low Paved Density",
+    Paved_Dnst >= 0.25    & Paved_Dnst < 0.5   ~ "2.Med Paved Density",
+    Paved_Dnst >= 0.5    & Paved_Dnst < 2.0   ~ "3.High Paved Density",
+    TRUE ~ NA_character_  # 
+  ))
+
+ggplot(EC_MMP_pot, aes(x = Paved_Dnst_bin)) +
+  geom_bar(fill = "steelblue") +
+  labs(x = "Paved Road Density Bin", y = "Count", title = "Paved Density Bins") +
+  theme_minimal()
+
+###################################################################################
+# load grizzly data
+# values: 0 = low and 16 = high
+GB_summer <- rast(file.path(GIS_Dir, "hsf_16quant_burgar_AOI_summer.tif"))
+GB_fall <- rast(file.path(GIS_Dir, "hsf_16quant_burgar_AOI_fall.tif"))
+GB_latefall <- rast(file.path(GIS_Dir, "hsf_16quant_burgar_AOI_latefall.tif"))
+
+
+# Define the matrix of breaks and new values
+rcl <- matrix(c(
+  0,    4.0,  1,
+  4.0,  8.0,  2,
+  8.0,  12.0,  3,
+  12.0, 16.01,  4 # upper limit slightly higher than max
+), ncol = 3, byrow = TRUE)
+
+# Reclassify
+GB_summer <- classify(GB_summer, rcl)
+plot(GB_summer, col = terrain.colors(4), main = "Binned Raster: Low to High")
+
+GB_fall <- classify(GB_fall, rcl)
+plot(GB_fall, col = terrain.colors(4), main = "Binned Raster: Low to High")
+
+GB_latefall <- classify(GB_latefall, rcl)
+plot(GB_summer, col = terrain.colors(4), main = "Binned Raster: Low to High")
+
+###
+# find mode and mean of grizzly bear habitat in each EC_MMP_pot
+# Load your raster and vector data
+get_mode <- function(x) {
+  ux <- na.omit(x)
+  if (length(ux) == 0) return(NA)
+  ux_tab <- table(ux)
+  as.numeric(names(ux_tab)[which.max(ux_tab)])
+}
+
+r <- GB_latefall        # your raster
+v <- EC_MMP_pot      # your polygon shapefile
+
+# Extract raster values within each polygon and summarize
+summary_table <- extract(r, v, fun = mean, na.rm = TRUE)
+# Define a mode function
+
+# Extract mode per polygon
+mode_table <- extract(r, v, fun = get_mode)
+
+summary_table$mode <- mode_table[,2]
+names(summary_table)[2] <- "mean"
+
+EC_MMP_pot$GB_latefall_mean <- summary_table$mean
+EC_MMP_pot$GB_latefall_mode <- summary_table$mode
+
+### come back to this point - EC_MMP_pot is now saved in project directory
+# # Save
+# saveRDS(EC_MMP_pot, "EC_MMP_pot.rds")
+
+# Load
+EC_MMP_pot <- readRDS("EC_MMP_pot.rds")
