@@ -8,7 +8,7 @@ R_version <- paste0("R-",version$major,".",version$minor)
 .libPaths(paste0("C:/Program Files/R/",R_version,"/library")) # to ensure reading/writing libraries from C drive
 
 # Load Packages
-list.of.packages <- c("tidyverse","sf","terra")
+list.of.packages <- c("tidyverse","sf","terra","purrr")
 
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
@@ -96,6 +96,12 @@ ggplot() +
   labs(title = "Grid Cells by CCMP Priority - unpaved road") +
   theme_minimal()
 
+ggplot() +
+  geom_sf(data = EC_MMP_Fquad %>% filter(use_cell==TRUE) %>% filter(ECpoly=="NCFP") %>% filter(ParkTrail=="Yes"), 
+          aes(fill = CCMP_prior), color = "black") +
+  scale_fill_viridis_d(name = "CCMP Priority", option = "D") +
+  labs(title = "Grid Cells by CCMP Priority - park trail") +
+  theme_minimal()
 
 ####################################################
 ### PILOT STUDY DESIGN
@@ -103,22 +109,13 @@ ggplot() +
 # Below ~49.8 degrees N (548189 as the Y centroid in Albers)
 # With a paved road in the 36 km2 cell
 # yields 138 potential sites
+# aim is to have 3-4 cameras per cell, spaced a min of 1 km apart, preferably ~3 km
 
 EC_MMP_Fquad %>% filter(use_cell==TRUE) %>% filter(ECpoly=="NCFP") %>% filter(Paved_Dnst>0)
 
 EC_MMP_pot <- EC_MMP_Fquad %>% filter(use_cell==TRUE) %>% filter(ECpoly=="NCFP") %>% filter(Paved_Dnst>0)
 hist(EC_MMP_pot$elevation)
 
-# Create a ranking for sites
-# needs to have a park trail (30 cells) and unpaved roads (128 cells)
-# need to rank so that all park trails are included
-# rank by bins of road density (paved and unpaved)
-# rank by bins of grizzly bear habitat
-# rank by elevation bins (>1000 m for CCMP)
-EC_MMP_pot %>% count(ParkTrail)
-EC_MMP_pot %>% count(Unpvd_Dnst>0)
-hist(EC_MMP_pot$Unpvd_Dnst)
-hist(EC_MMP_pot$Paved_Dnst)
 
 #elevation bins
 EC_MMP_pot <- EC_MMP_pot %>%
@@ -149,13 +146,17 @@ ggplot(EC_MMP_pot, aes(x = Paved_Dnst_bin)) +
   labs(x = "Paved Road Density Bin", y = "Count", title = "Paved Density Bins") +
   theme_minimal()
 
+
+
 ###################################################################################
 # load grizzly data
 # values: 0 = low and 16 = high
+GB_spring <- rast(file.path(GIS_Dir, "hsf_16quant_burgar_AOI_spring.tif"))
 GB_summer <- rast(file.path(GIS_Dir, "hsf_16quant_burgar_AOI_summer.tif"))
 GB_fall <- rast(file.path(GIS_Dir, "hsf_16quant_burgar_AOI_fall.tif"))
 GB_latefall <- rast(file.path(GIS_Dir, "hsf_16quant_burgar_AOI_latefall.tif"))
 
+# Summarize for mean value, then reclassify to bins and get the mode of each bin
 
 # Define the matrix of breaks and new values
 rcl <- matrix(c(
@@ -165,19 +166,7 @@ rcl <- matrix(c(
   12.0, 16.01,  4 # upper limit slightly higher than max
 ), ncol = 3, byrow = TRUE)
 
-# Reclassify
-GB_summer <- classify(GB_summer, rcl)
-plot(GB_summer, col = terrain.colors(4), main = "Binned Raster: Low to High")
-
-GB_fall <- classify(GB_fall, rcl)
-plot(GB_fall, col = terrain.colors(4), main = "Binned Raster: Low to High")
-
-GB_latefall <- classify(GB_latefall, rcl)
-plot(GB_summer, col = terrain.colors(4), main = "Binned Raster: Low to High")
-
-###
-# find mode and mean of grizzly bear habitat in each EC_MMP_pot
-# Load your raster and vector data
+# Define a mode function
 get_mode <- function(x) {
   ux <- na.omit(x)
   if (length(ux) == 0) return(NA)
@@ -185,12 +174,16 @@ get_mode <- function(x) {
   as.numeric(names(ux_tab)[which.max(ux_tab)])
 }
 
-r <- GB_latefall        # your raster
+## work through the files
 v <- EC_MMP_pot      # your polygon shapefile
+
+r <- GB_spring       # your raster
 
 # Extract raster values within each polygon and summarize
 summary_table <- extract(r, v, fun = mean, na.rm = TRUE)
-# Define a mode function
+
+r <- classify(r, rcl)
+plot(r, col = terrain.colors(4), main = "Binned Raster: Low to High")
 
 # Extract mode per polygon
 mode_table <- extract(r, v, fun = get_mode)
@@ -198,12 +191,78 @@ mode_table <- extract(r, v, fun = get_mode)
 summary_table$mode <- mode_table[,2]
 names(summary_table)[2] <- "mean"
 
-EC_MMP_pot$GB_latefall_mean <- summary_table$mean
-EC_MMP_pot$GB_latefall_mode <- summary_table$mode
+# add into polygon file
+EC_MMP_pot$GB_spring_mean <- summary_table$mean
+EC_MMP_pot$GB_spring_mode <- summary_table$mode
 
 ### come back to this point - EC_MMP_pot is now saved in project directory
 # # Save
 # saveRDS(EC_MMP_pot, "EC_MMP_pot.rds")
 
 # Load
-EC_MMP_pot <- readRDS("EC_MMP_pot.rds")
+# EC_MMP_pot <- readRDS("EC_MMP_pot.rds")
+
+# Create a ranking for sites - aiming for 100 cameras
+# each cell will have an average of 3 cameras
+# so that makes for ~33 sites (3*33=99 cameras)
+# needs to have at least half within park trails (30 cells)
+# balance the park trails so join with CCMP_priority and have 
+# logistically need paved roads in each cell
+# need to rank so that all park trails are included
+# rank by bins of road density (paved and unpaved)
+# rank by bins of grizzly bear habitat (aim for minimum of 5 cells with each mode)
+# grizzly bear habitat will also be selected at micro site level
+# rank by elevation bins (>1000 m for CCMP)
+EC_MMP_pot %>% group_by(CCMP_prior) %>% count(ParkTrail) %>% st_drop_geometry()
+EC_MMP_pot %>% count(Paved_Dnst_bin) %>% st_drop_geometry()
+EC_MMP_pot %>% count(elevation_bin) %>% st_drop_geometry()
+hist(EC_MMP_pot$Unpvd_Dnst)
+hist(EC_MMP_pot$Paved_Dnst)
+
+
+ggplot() +
+  geom_sf(data = EC_MMP_pot %>% filter(use_cell==TRUE) %>% filter(ECpoly=="NCFP") %>% filter(ParkTrail=="Yes"), 
+          aes(fill = CCMP_prior), color = "black") +
+  scale_fill_viridis_d(name = "CCMP Priority", option = "D") +
+  labs(title = "Grid Cells by CCMP Priority - park trail") +
+  theme_minimal()
+
+glimpse(EC_MMP_pot)
+
+#  Create a Cross-Stratification Table
+cells <- expand.grid(
+  # CCMP_prior = c("2526_1", "2526_2", "NotPrior"),
+  ParkTrail = c("No", "Yes"),
+  elevation_bin = c("1.0–500", "2.500–1000", "3.1000–1500", "4.1500–2000"),
+  Paved_Dnst_bin = c("1.Low Paved Density", "2.Med Paved Density", "3.High Paved Density")
+)
+
+
+# Add a stratification ID to data and a random variable to select stratum
+EC_MMP_pot <- EC_MMP_pot %>%
+  mutate(strata_id = paste(ParkTrail, elevation_bin, Paved_Dnst_bin, sep = "_"))
+
+# Assuming you already created strata_id
+EC_MMP_pot <- EC_MMP_pot %>%
+  mutate(random_val = runif(n())) %>%  # Assign a random number to each row
+  arrange(strata_id, random_val)       # Sort by strata then random value
+
+sampled_data <- EC_MMP_pot %>%
+  group_by(strata_id) %>%
+  slice_head(n = 3) %>%  # Pick the top 3 random ones per stratum
+  ungroup()
+
+
+sampled_data %>% count(CCMP_prior) %>% st_drop_geometry()
+sampled_data %>% count(ParkTrail) %>% st_drop_geometry()
+sampled_data %>% count(elevation_bin) %>% st_drop_geometry()
+sampled_data %>% count(Paved_Dnst_bin) %>% st_drop_geometry()
+
+sampled_data %>% count(strata_id)%>% st_drop_geometry()
+write.csv(sampled_data, "sampled_data.csv", row.names = FALSE)
+
+
+
+st_write(EC_MMP_pot, "EC_MMP_pot.shp", delete_layer = TRUE)
+st_write(EC_MMP_pot, "EC_MMP_pot.kml", driver = "KML", delete_dsn = TRUE)
+
